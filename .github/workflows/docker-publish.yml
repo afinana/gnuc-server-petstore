@@ -1,0 +1,67 @@
+name: Docker
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+on:
+  push:
+    branches: [ main ]
+    # Publish semver tags as releases.
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Use docker.io for Docker Hub if empty
+      REGISTRY: docker.io
+      # github.repository as <account>/<repo>
+      USER_ACCOUNT: middleland
+      IMAGE_NAME: gnuc-server-petstore
+      TAG_NAME: mongo
+      
+    permissions:
+      contents: read
+      packages: write
+      # This is used to complete the identity challenge  
+      id-token: write
+
+    steps:
+      # Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Setup Docker buildx (a Docker CLI plugin for extended build capabilities with BuildKit)
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login to Docker registry (skip on pull requests)
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USER_ACCOUNT }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      # Extract Docker metadata (tags, labels) for the image
+      # - name: Extract Docker metadata
+      #   id: meta
+      #   uses: docker/metadata-action@v5
+      #   with:
+      #     context: .          
+      #     images: name/app
+        
+      # Build and push Docker image with Buildx (don't push on PR)
+      # https://github.com/docker/build-push-action
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .          
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.USER_ACCOUNT }}/${{ env.IMAGE_NAME }}:${{ env.TAG_NAME }}
