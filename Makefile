@@ -1,5 +1,5 @@
 CC = cc
-#CFLAGS = -Wall  -Wextra -g -O0 -DDEBUG -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
+CFLAGS_PRO = -Wall  -Wextra -g -O2 -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
 CFLAGS = -Wall  -Wextra -g -O0 -DDEBUG -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
 LDFLAGS = -lmongoc-1.0 -lbson-1.0 -lmicrohttpd
 SRC = main.c handlers.c database.c 
@@ -23,3 +23,4 @@ run: all
 .PHONY: all clean run
 
 
+ 

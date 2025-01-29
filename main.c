@@ -3,11 +3,22 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <syslog.h>
+#include <signal.h>
+#include <unistd.h>
+
 #include "handlers.h" // Include your API handler functions
 #include "database.h"// Include mongodb database functions
+#include "log-utils.h" // Include the log utils header
 
 #define HTTP_CONTENT_TYPE_JSON "application/json"
+
+volatile sig_atomic_t keep_running = 1;
+
+void handle_signal(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        keep_running = 0;
+    }
+}
 
 /**
  * @brief Creates and sends an HTTP response.
@@ -183,7 +194,7 @@ static enum MHD_Result request_handler(void* cls,
         return MHD_YES;
     }
     // Log the request
-    syslog(LOG_INFO, "%s %s", method, url);
+    LOG_INFO("%s %s", method, url);
 
     // Handle POST /pet
     if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/pet") == 0) {
@@ -387,9 +398,6 @@ static enum MHD_Result request_handler(void* cls,
 int main() {
     struct MHD_Daemon* daemon;
 
-    // Open a connection to the syslog
-    openlog("petstore_server", LOG_PID | LOG_CONS, LOG_USER);
-
     // Read the port from the environment variable
     const char* env_port = getenv("PORT");
     int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
@@ -401,7 +409,7 @@ int main() {
         db_uri = "mongodb://root:example@127.0.0.1:27017/admin?retryWrites=true&loadBalanced=false&connectTimeoutMS=10000&authSource=admin&authMechanism=SCRAM-SHA-256";
     }
     // Log db_uri
-    syslog(LOG_INFO, "DB_URI: %s", db_uri);
+    LOG_INFO("DB_URI: %s", db_uri);
 
     // Initialize the database
     db_init(db_uri);
@@ -417,30 +425,30 @@ int main() {
         MHD_OPTION_END);
 
     if (NULL == daemon) {
-        syslog(LOG_ERR, "Failed to start HTTP server");
+        LOG_ERROR("Failed to start HTTP server");
         db_cleanup();
-        closelog();
         return 1;
     }
+    LOG_INFO("Server is running on http://localhost:%d", listen_port);
+    fflush(stdout);
 
-    syslog(LOG_INFO, "Server is running on http://localhost:%d", listen_port);
-	// show the message by console
-	printf("Server is running on http://localhost:%d\n", listen_port);
-    
-    
-    (void)getc(stdin); // Wait until the user presses Enter
 
- 
+   // Set up signal handlers
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    // Keep running until a termination signal is received    
+    while (keep_running) {
+        sleep(1);
+    }
+    //(void)getc(stdin); // Wait until the user presses Enter
+
     MHD_stop_daemon(daemon);
 
     // Cleanup the database connection
     db_cleanup();
 
-    // Log db_uri
-    syslog(LOG_ALERT, "Server is down");
-
-    // Close the connection to the syslog
-    closelog();
+    LOG_WARN("Server is down");
 
     return 0;
 }

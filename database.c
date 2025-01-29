@@ -4,20 +4,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "database.h"
+#include "log-utils.h" // Include the log utils header
 
 mongoc_client_t* client = NULL;
 mongoc_collection_t* collection = NULL;
 
 /**
  * @brief Initializes the database connection.
- * 
+ *
  * @param uri The URI of the database to connect to.
  */
 void db_init(const char* uri) {
     mongoc_init();
     client = mongoc_client_new(uri);
     if (!client) {
-        fprintf(stderr, "Failed to initialize MongoDB client\n");
+        LOG_ERROR("Failed to initialize MongoDB client");
         exit(EXIT_FAILURE);
     }
 }
@@ -34,7 +35,7 @@ void db_cleanup() {
 
 /**
  * @brief Inserts a document into the specified collection.
- * 
+ *
  * @param collection_name The name of the collection to insert the document into.
  * @param doc The document to insert.
  * @return bool Returns true on success, false on failure.
@@ -43,7 +44,7 @@ bool db_insert(const char* collection_name, const bson_t* doc) {
     bson_error_t error;
     collection = mongoc_client_get_collection(client, "petstore", collection_name);
     if (!mongoc_collection_insert_one(collection, doc, NULL, NULL, &error)) {
-        fprintf(stderr, "Insert failed: %s\n", error.message);
+        LOG_ERROR("Insert failed: %s", error.message);
         mongoc_collection_destroy(collection);
         return false;
     }
@@ -53,7 +54,7 @@ bool db_insert(const char* collection_name, const bson_t* doc) {
 
 /**
  * @brief Updates a document in the specified collection.
- * 
+ *
  * @param collection_name The name of the collection to update the document in.
  * @param query The query to find the document to update.
  * @param update The update to apply to the document.
@@ -63,7 +64,7 @@ bool db_update(const char* collection_name, const bson_t* query, const bson_t* u
     bson_error_t error;
     collection = mongoc_client_get_collection(client, "petstore", collection_name);
     if (!mongoc_collection_update_one(collection, query, update, NULL, NULL, &error)) {
-        fprintf(stderr, "Update failed: %s\n", error.message);
+        LOG_ERROR("Update failed: %s", error.message);
         mongoc_collection_destroy(collection);
         return false;
     }
@@ -84,7 +85,7 @@ bool db_delete(const char* collection_name, const bson_t* query) {
     collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     if (!mongoc_collection_delete_one(collection, query, NULL, &reply, &error)) {
-        fprintf(stderr, "Delete failed: %s\n", error.message);
+        LOG_ERROR("Delete failed: %s", error.message);
         bson_destroy(&reply);
         mongoc_collection_destroy(collection);
         return false;
@@ -94,13 +95,12 @@ bool db_delete(const char* collection_name, const bson_t* query) {
     return true;
 }
 
-
 /**
  * @brief Finds document in the specified collection that match the query.
- * 
+ *
  * @param collection_name The name of the collection to search.
  * @param query The query to find the document.
- * @return bson_t* A BSON document containing the results of the query. 
+ * @return bson_t* A BSON document containing the results of the query.
  *         The caller is responsible for freeing the returned document.
  */
 bson_t* db_find_one(const char* collection_name, const bson_t* query) {
@@ -129,7 +129,6 @@ bson_t* db_find_one(const char* collection_name, const bson_t* query) {
  * @return bson_t* A BSON document containing the results of the query.
  *         The caller is responsible for freeing the returned document.
  */
-
 bson_t* db_find(const char* collection_name, const bson_t* query) {
     mongoc_cursor_t* cursor;
     const bson_t* doc;

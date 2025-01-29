@@ -111,14 +111,11 @@
     <ClCompile Include="database.c" />
     <ClCompile Include="handlers.c" />
     <ClCompile Include="main.c" />
-    <ClCompile Include="utils.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="database.h" />
     <ClInclude Include="handlers.h" />
-    <ClInclude Include="main.h" />
-    <ClInclude Include="stdbool.h" />
-    <ClInclude Include="utils.h" />
+    <ClInclude Include="log-utils.h" />
   </ItemGroup>
   <ItemDefinitionGroup />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

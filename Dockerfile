@@ -1,13 +1,11 @@
 # Stage 1: Builder
 FROM gcc:latest AS builder
 
-COPY . /app
-
 # Set the working directory
-WORKDIR /app
+WORKDIR /app 
 
-# Copy the source code into the container
-COPY . /app
+# Copy only .c and .h files into the container
+COPY *.c *.h /app/
 
 # Install necessary libraries for building
 RUN apt-get update && apt-get install -y \
@@ -16,16 +14,29 @@ RUN apt-get update && apt-get install -y \
     libmongoc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Build the application as a static binary
-RUN gcc -Wall -Wextra -O3 -static main.c database.c handlers.c -o petstore-server  -I/usr/include/libmongoc-1.
-0 -I/usr/include/libbson-1.0 -lmicrohttpd -lbson -lmongoc
+# Build the application binary
+RUN gcc -Wall -Wextra -O0 main.c database.c handlers.c -o petstore-server \
+-I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0 \
+-lmicrohttpd -lbson-1.0 -lmongoc-1.0
 
-FROM gcr.io/distroless/cc
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+# Install necessary runtime libraries
+RUN apt-get update && apt-get install -y \
+    libmicrohttpd12 \
+    libmongoc-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the application binary from the builder stage
 COPY --from=builder /app /app
+
+# Set the working directory
 WORKDIR /app
 
 # Expose the application port
 EXPOSE 8080
 
 # Command to run the application
-CMD ["/petstore-server"]
+CMD ["/app/petstore-server"]
+ 
