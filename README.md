@@ -1,6 +1,10 @@
 ### Introduction
 
-This project implements a RESTful pet store API using C, the MongoDB C driver, and a Makefile for build automation. The API will include the following endpoints:
+This project is a **RESTfull Pet Store API** built in **glib C**, using the **MongoDB C driver** for database operations.
+It provides endpoints to manage pet data, including creation, retrieval, updating, and deletion. 
+The project is structured with a **Makefile** for efficient build automation, ensuring smooth compilation and dependency management.
+
+The API will include the following endpoints:
 
 1. **Routes**:
    - **POST `/pet`**: Creates a new pet using `create_pet`.
@@ -52,28 +56,7 @@ Run the compiled server:
 
 The server will listen on `http://localhost:8888`. You can test it with tools like `curl` or Postman:
 
-- **POST**:
-  ```bash
-  curl -X POST -d '{"id":2,"name":"cat2"}' http://localhost:8888/pet
-  ```
-- **PUT**:
-  ```bash
-  curl -X PUT -d '{"id":2,"name":"updatedCat"}' http://localhost:8888/pet
-  ```
-- **DELETE**:
-  ```bash
-  curl -X DELETE http://localhost:8888/pet/2
-  ```
-- **GET by tags**:
-  ```bash
-  curl "http://localhost:8888/pet/findByTags?tags=tag02"
-  ```
-- **GET by state**:
-  ```bash
-  curl "http://localhost:8888/pet/findByState?state=available"
-  ```
 
-  
 ---
 
 ### **Dockerfile with Build Process**
@@ -81,65 +64,22 @@ The server will listen on `http://localhost:8888`. You can test it with tools li
 We create a **multi-stage Dockerfile** that includes the build process in the container itself. This approach uses a builder stage to compile the application and then copies the statically compiled binary into a minimal `scratch` image.
 
 
-```dockerfile
-# Stage 1: Builder
-FROM gcc:latest AS builder
-
-# Set the working directory
-WORKDIR /app
-
-# Copy the source code into the container
-COPY . /app
-
-# Install necessary libraries for building
-RUN apt-get update && apt-get install -y \
-    libmicrohttpd-dev \
-    libbson-dev \
-    libmongoc-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Build the application as a static binary
-RUN gcc -static main.c database.c handlers.c -o server -lmicrohttpd -lbson-1.0 -lmongoc-1.0 -o petstore-api
-
-# Stage 2: Final image
-FROM scratch
-
-# Set the working directory
-WORKDIR /
-
-# Copy the statically compiled binary from the builder stage
-COPY --from=builder /app/server /
-
-# Copy necessary certificates for MongoDB (if needed)
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-
-# Expose the application port
-EXPOSE 8888
-
-# Command to run the application
-CMD ["/server"]
-```
-
----
-
-### **Explanation**
-
 1. **Builder Stage**:
    - The `gcc:latest` image is used as the build environment.
    - The source code is copied into the container.
    - Required development libraries (`libmicrohttpd-dev`, `libbson-dev`, `libmongoc-dev`) are installed.
-   - The application is compiled into a statically linked binary using `-static`.
+
 
 2. **Final Stage**:
-   - The `scratch` image is used to create a minimal container.
+   - The `debian:buster-slim` image is used to create a minimal container.
    - The statically compiled binary (`server`) is copied from the builder stage.
-   - Optional: If your application connects to MongoDB over TLS, the CA certificates are also copied.
+   - Optional: If the application connects to MongoDB over TLS, the CA certificates are also copied.
 
 3. **Exposed Port**:
-   - The application listens on port `8888`.
+   - The application listens on port `8080`.
 
 4. **Run Command**:
-   - `CMD ["/server"]` starts the application.
+   - `CMD ["/app/petstore-server"]` starts the application.
 
 ---
 
@@ -147,10 +87,10 @@ CMD ["/server"]
 
 ```bash
 # Build the Docker image
-docker build -t petstore-api .
+docker build . -t petstore-api 
 
 # Run the Docker container
-docker run -p 8888:8888 petstore-api
+docker run -p 8080:8080 petstore-api -e mongoURI="mongodb://root:password@localhost:27017"
 ```
 
 ---

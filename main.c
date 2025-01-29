@@ -399,17 +399,17 @@ int main() {
     struct MHD_Daemon* daemon;
 
     // Read the port from the environment variable
-    const char* env_port = getenv("PORT");
+    const char* env_port = getenv("port");
     int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
 
     // Read the database URI from the environment variable
-    const char* db_uri = getenv("DB_URI");
+    const char* db_uri = getenv("mongoURI");
     if (db_uri == NULL) {
         // Use default URI if not provided
-        db_uri = "mongodb://root:example@127.0.0.1:27017/admin?retryWrites=true&loadBalanced=false&connectTimeoutMS=10000&authSource=admin&authMechanism=SCRAM-SHA-256";
+        db_uri = "mongodb://root@127.0.0.1:27017/admin?retryWrites=true&loadBalanced=false&connectTimeoutMS=10000&authSource=admin&authMechanism=SCRAM-SHA-256";
     }
     // Log db_uri
-    LOG_INFO("DB_URI: %s", db_uri);
+    LOG_INFO("mongoURI: %s", db_uri);
 
     // Initialize the database
     db_init(db_uri);
