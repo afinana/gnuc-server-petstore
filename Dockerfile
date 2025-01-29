@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Build the application binary
-RUN gcc -Wall -Wextra -O0 main.c database.c handlers.c -o petstore-api \
+RUN gcc -Wall -Wextra -O0 main.c database.c handlers.c -o glibc-server-petstore \
 -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0 \
 -lmicrohttpd -lbson-1.0 -lmongoc-1.0
 
@@ -38,4 +38,4 @@ WORKDIR /app
 EXPOSE 8080
 
 # Command to run the application
-CMD ["/app/petstore-api"]
+CMD ["/app/glibc-server-petstore"] 
