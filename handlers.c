@@ -23,7 +23,7 @@ int handle_create_pet(const char* json_payload) {
     }
     // prints the json document
     LOG_INFO("create pet document: %s", cJSON_Print(doc));
-    if (!db_insert("pets", doc)) {
+    if (!db_pet_insert("pets", doc)) {
         LOG_ERROR("Failed to insert pet");
         cJSON_Delete(doc);
         return EXIT_FAILURE;
@@ -55,7 +55,7 @@ int handle_update_pet(const char* json_payload) {
         return EXIT_FAILURE;
     }
 
-    if (!db_update("pets", update)) {
+    if (!db_pet_update("pets", update)) {
         LOG_ERROR("Failed to update pet");
         cJSON_Delete(update);
         return EXIT_FAILURE;
@@ -65,37 +65,6 @@ int handle_update_pet(const char* json_payload) {
     return EXIT_SUCCESS;
 }
 
-/**
- * @brief Updates an existing user with the given JSON payload.
- *
- * @param json_payload The JSON payload containing the updated user details.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
- */
-int handle_update_user(const char* json_payload) {
-    LOG_INFO("handle_update_user");
-    cJSON* update = cJSON_Parse(json_payload);
-    if (!update) {
-        LOG_ERROR("Failed to parse JSON");
-        return EXIT_FAILURE;
-    }
-
-    // Read the JSON payload and extract the id field
-    cJSON* id_item = cJSON_GetObjectItem(update, "id");
-    if (!cJSON_IsString(id_item)) {
-        LOG_ERROR("Failed to find 'id' field in JSON");
-        cJSON_Delete(update);
-        return EXIT_FAILURE;
-    }
-
-    if (!db_update("users",  update)) {
-        LOG_ERROR("Failed to update user");
-        cJSON_Delete(update);
-        return EXIT_FAILURE;
-    }
-
-    cJSON_Delete(update);
-    return EXIT_SUCCESS;
-}
 
 /**
  * @brief Deletes a pet with the given ID.
@@ -106,11 +75,10 @@ int handle_update_user(const char* json_payload) {
 int handle_delete_pet(const char* id) {
     LOG_INFO("delete pet with the id: %s", id);
 
-
     if (!db_delete("pets", id)) {
-        LOG_ERROR("Failed to delete pet");       
+        LOG_ERROR("Failed to delete pet");
         return EXIT_FAILURE;
-    }    
+    }
     return EXIT_SUCCESS;
 }
 
@@ -130,18 +98,17 @@ char* handle_get_pet_by_tags(const char* tags) {
         LOG_ERROR("Memory allocation failed");
         return NULL;
     }
-	// create query JSON: { "operator": "eq", "field": "pets.tags.name", "value": ["tag1", "tag2"] }
-	cJSON* query = cJSON_CreateObject();
-	cJSON_AddStringToObject(query, "operator", "eq");
-	cJSON_AddStringToObject(query, "field", "pets.tags.name");
-	cJSON* value = cJSON_CreateArray();
-	char* token = strtok(tags_copy, ",");
-	while (token != NULL) {
-		cJSON_AddItemToArray(value, cJSON_CreateString(token));
-		token = strtok(NULL, ",");
-	}
-	cJSON_AddItemToObject(query, "value", value);
-
+    // create query JSON: { "operator": "eq", "field": "pets.tags.name", "value": ["tag1", "tag2"] }
+    cJSON* query = cJSON_CreateObject();
+    cJSON_AddStringToObject(query, "operator", "eq");
+    cJSON_AddStringToObject(query, "field", "pets.tags.name");
+    cJSON* value = cJSON_CreateArray();
+    char* token = strtok(tags_copy, ",");
+    while (token != NULL) {
+        cJSON_AddItemToArray(value, cJSON_CreateString(token));
+        token = strtok(NULL, ",");
+    }
+    cJSON_AddItemToObject(query, "value", value);
 
     // Execute query
     cJSON* result = db_find("pets", query);
@@ -176,21 +143,21 @@ char* handle_get_pet_by_state(const char* statuses) {
         LOG_ERROR("Memory allocation failed");
         return NULL;
     }
-	// create the query JSON: { "operator": "eq", "field": "pets.status", "value": "[available,sold,pending]" }
-	cJSON* query = cJSON_CreateObject();
-	cJSON_AddStringToObject(query, "operator", "eq");
-	cJSON_AddStringToObject(query, "field", "pets.status");
+    // create the query JSON: { "operator": "eq", "field": "pets.status", "value": "[available,sold,pending]" }
+    cJSON* query = cJSON_CreateObject();
+    cJSON_AddStringToObject(query, "operator", "eq");
+    cJSON_AddStringToObject(query, "field", "pets.status");
 
-	cJSON* value = cJSON_CreateArray();
-	char* token = strtok(statuses_copy, ",");
-	while (token != NULL) {
-		cJSON_AddItemToArray(value, cJSON_CreateString(token));
-		token = strtok(NULL, ",");
-	}
-	cJSON_AddItemToObject(query, "value", value);
+    cJSON* value = cJSON_CreateArray();
+    char* token = strtok(statuses_copy, ",");
+    while (token != NULL) {
+        cJSON_AddItemToArray(value, cJSON_CreateString(token));
+        token = strtok(NULL, ",");
+    }
+    cJSON_AddItemToObject(query, "value", value);
 
-	// Print query
-    LOG_INFO("handle_get_pet_by_state query: %s", cJSON_GetStringValue(query));
+    // Print query
+    LOG_INFO("handle_get_pet_by_state query: %s", cJSON_PrintUnformatted(query));
 
     // Execute query
     cJSON* result = db_find("pets", query);
@@ -218,19 +185,17 @@ char* handle_get_pet_by_state(const char* statuses) {
  */
 char* handle_get_pet_by_id(const char* id) {
     LOG_INFO("find_pet_by_id with the given id: %s", id);
-
-    cJSON* result = db_find_one("pets", id);
     char* json = NULL;
+    cJSON* result = db_find_one("pets", id);
+
     if (result) {
         json = cJSON_PrintUnformatted(result);
-        LOG_INFO("Pet found: %s", json);
-      
+        cJSON_Delete(result);
     }
     else {
         LOG_ERROR("No pet found with the given ID");
         json = strdup("{\"error\":\"Failed to find pets by id\"}");
     }
-    cJSON_Delete(result);
     return json;
 }
 
@@ -249,7 +214,7 @@ int handle_create_user(const char* json_payload) {
         return EXIT_FAILURE;
     }
 
-    if (!db_insert("users", doc)) {
+    if (!db_user_insert("users", doc)) {
         LOG_ERROR("Failed to insert user");
         cJSON_Delete(doc);
         return EXIT_FAILURE;
@@ -259,6 +224,29 @@ int handle_create_user(const char* json_payload) {
     return EXIT_SUCCESS;
 }
 
+/**
+ * @brief Updates an existing user with the given JSON payload.
+ *
+ * @param json_payload The JSON payload containing the updated user details.
+ * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
+ */
+int handle_update_user(const char* json_payload) {
+    LOG_INFO("handle_update_user");
+    cJSON* update = cJSON_Parse(json_payload);
+    if (!update) {
+        LOG_ERROR("Failed to parse JSON");
+        return EXIT_FAILURE;
+    }
+
+    if (!db_user_update("users", update)) {
+        LOG_ERROR("Failed to update user");
+        cJSON_Delete(update);
+        return EXIT_FAILURE;
+    }
+
+    cJSON_Delete(update);
+    return EXIT_SUCCESS;
+}
 /**
  * @brief Deletes a user with the given ID.
  *
@@ -367,9 +355,9 @@ int handle_post_user_login(const char* json_payload) {
  */
 char* handle_get_all_users() {
     LOG_INFO("find_all_users");
-	
+
     // Use method find_all to get all users
-	cJSON* result = db_find_all("users");
+    cJSON* result = db_find_all("users");
     char* json = NULL;
     if (result) {
         json = cJSON_PrintUnformatted(result);
@@ -379,7 +367,6 @@ char* handle_get_all_users() {
         LOG_ERROR("No users found");
         json = strdup("[]");
     }
-
 
     return json;
 }
