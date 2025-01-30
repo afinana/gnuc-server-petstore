@@ -22,7 +22,7 @@ jobs:
       # github.repository as <account>/<repo>
       USER_ACCOUNT: middleland
       IMAGE_NAME: gnuc-server-petstore
-      TAG_NAME: mongo
+      TAG_NAME: redis
       
     permissions:
       contents: read
