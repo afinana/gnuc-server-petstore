@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Build the application binary
-RUN  gcc -Wall -Wextra -std=c99 -O2 -DNDEBUG main.c database.c handlers.c -o gnuc-server-petstore \
+RUN  gcc -Wall -Wextra -O2 -DNDEBUG main.c database.c handlers.c -o gnuc-server-petstore \
 -I/usr/include/hiredis -I/usr/include/cjson \
 -lmicrohttpd -lhiredis -lcjson
 
