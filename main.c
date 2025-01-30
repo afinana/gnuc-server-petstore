@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "handlers.h" // Include your API handler functions
-#include "database.h"// Include mongodb database functions
+#include "database.h" // Include Redis database functions
 #include "log-utils.h" // Include the log utils header
 
 #define HTTP_CONTENT_TYPE_JSON "application/json"
@@ -41,124 +41,6 @@ static int send_response(struct MHD_Connection* connection, const char* message,
     MHD_destroy_response(response);
     return ret;
 }
-
-/**
- * @brief Handles the POST /pet route.
- *
- * @param json_payload The JSON payload containing the pet details.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_post_pet(const char* json_payload) {
-    return create_pet(json_payload); // Function from handlers.c
-}
-
-/**
- * @brief Handles the PUT /pet route.
- *
- * @param json_payload The JSON payload containing the updated pet details.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_put_pet(const char* json_payload) {
-    return update_pet(json_payload); // Function from handlers.c
-}
-
-/**
- * @brief Handles the DELETE /pet/{id} route.
- *
- * @param id The ID of the pet to delete.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_delete_pet(const char* id) {
-    return delete_pet_by_id(id); // Function from handlers.c
-}
-
-/**
- * @brief Handles the GET /pet/findByTags route.
- *
- * @param tags The tags to search for.
- * @return char* A JSON string containing the list of pets that match the tags.
- *         The caller is responsible for freeing the returned string.
- */
-char* handle_get_pet_by_tags(const char* tags) {
-    return find_pets_by_tags(tags); // Function from handlers.c
-}
-
-/**
- * @brief Handles the GET /pet/findByState route.
- *
- * @param state The state to search for.
- * @return char* A JSON string containing the list of pets that match the state.
- *         The caller is responsible for freeing the returned string.
- */
-char* handle_get_pet_by_state(const char* state) {
-    return find_pets_by_state(state); // Function from handlers.c
-}
-
-/**
- * @brief Handles the GET /pet/{petId} route.
- *
- * @param id The ID of the pet to search for.
- * @return char* A JSON string containing the pet details.
- *         The caller is responsible for freeing the returned string.
- */
-char* handle_get_pet_by_id(const char* id) {
-    return find_pet_by_id(id); // Function from handlers.c
-}
-
-
-// Route handler for Users methods
-/**
- * @brief Handles the POST /user route.
- *
- * @param json_payload The JSON payload containing the user details.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_post_user(const char* json_payload) {
-    return create_user(json_payload); // Function from handlers.c
-}
-
-/**
- * @brief Handles the PUT /user route.
- *
- * @param json_payload The JSON payload containing the updated user details.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_put_user(const char* json_payload) {
-    return update_user(json_payload); // Function from handlers.c
-}
-
-/**
- * @brief Handles the DELETE /user/{id} route.
- *
- * @param id The ID of the user to delete.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_delete_user(const char* id) {
-    return delete_user_by_id(id); // Function from handlers.c
-}
-
-/**
- * @brief Handles the GET /user route.
- *
- * @return char* A JSON string containing the list of users.
- *         The caller is responsible for freeing the returned string.
- */
-char* handle_get_all_users() {
-    return find_all_users(); // Function from handlers.c
-}
-
-
-/**
- * @brief Handles the GET /user/{username} route.
- *
- * @param username The username of the user to search for.
- * @return char* A JSON string containing the user details.
- *         The caller is responsible for freeing the returned string.
- */
-char* handle_get_user_by_username(const char* username) {
-    return find_user_by_username(username); // Function from handlers.c
-}
-
 
 /**
  * @brief Handles incoming HTTP requests and routes them to the appropriate handler.
@@ -215,7 +97,7 @@ static enum MHD_Result request_handler(void* cls,
         else {
             // Process the accumulated data
             char* data = (char*)*con_cls;
-            if (handle_post_pet(data) != 0) {
+            if(handle_create_pet(data) != 0) {
                 free(data);
                 return send_response(connection, "Failed to create pet", MHD_HTTP_INTERNAL_SERVER_ERROR);
             }
@@ -242,7 +124,7 @@ static enum MHD_Result request_handler(void* cls,
         else {
             // Process the accumulated data
             char* data = (char*)*con_cls;
-            if (handle_put_pet(data) != 0) {
+            if (handle_update_pet(data) != 0) {
                 free(data);
                 return send_response(connection, "Failed to update pet", MHD_HTTP_INTERNAL_SERVER_ERROR);
             }
@@ -310,7 +192,7 @@ static enum MHD_Result request_handler(void* cls,
         else {
             // Process the accumulated data
             char* data = (char*)*con_cls;
-            if (handle_post_user(data) != 0) {
+            if (handle_create_user(data) != 0) {
                 free(data);
                 return send_response(connection, "Failed to create user", MHD_HTTP_INTERNAL_SERVER_ERROR);
             }
@@ -403,13 +285,13 @@ int main() {
     int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
 
     // Read the database URI from the environment variable
-    const char* db_uri = getenv("mongoURI");
+    const char* db_uri = getenv("redisURI");
     if (db_uri == NULL) {
         // Use default URI if not provided
-        db_uri = "mongodb://root@127.0.0.1:27017/admin?retryWrites=true&loadBalanced=false&connectTimeoutMS=10000&authSource=admin&authMechanism=SCRAM-SHA-256";
+        db_uri = "127.0.0.1";
     }
     // Log db_uri
-    LOG_INFO("mongoURI: %s", db_uri);
+    LOG_INFO("redisURI: %s", db_uri);
 
     // Initialize the database
     db_init(db_uri);
@@ -430,10 +312,9 @@ int main() {
         return 1;
     }
     LOG_INFO("Server is running on http://localhost:%d", listen_port);
-    fflush(stdout);
 
 
-   // Set up signal handlers
+    // Set up signal handlers
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
