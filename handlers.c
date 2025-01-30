@@ -1,3 +1,4 @@
+#include "database.h"
 #include "handlers.h"
 
 #include <stdlib.h>
@@ -20,7 +21,8 @@ int handle_create_pet(const char* json_payload) {
         LOG_ERROR("Failed to parse JSON");
         return EXIT_FAILURE;
     }
-
+    // prints the json document
+    LOG_INFO("create pet document: %s", cJSON_Print(doc));
     if (!db_insert("pets", doc)) {
         LOG_ERROR("Failed to insert pet");
         cJSON_Delete(doc);
@@ -53,7 +55,7 @@ int handle_update_pet(const char* json_payload) {
         return EXIT_FAILURE;
     }
 
-    if (!db_update("pets", id_item->valuestring, update)) {
+    if (!db_update("pets", update)) {
         LOG_ERROR("Failed to update pet");
         cJSON_Delete(update);
         return EXIT_FAILURE;
@@ -85,7 +87,7 @@ int handle_update_user(const char* json_payload) {
         return EXIT_FAILURE;
     }
 
-    if (!db_update("users", id_item->valuestring, update)) {
+    if (!db_update("users",  update)) {
         LOG_ERROR("Failed to update user");
         cJSON_Delete(update);
         return EXIT_FAILURE;
@@ -104,17 +106,11 @@ int handle_update_user(const char* json_payload) {
 int handle_delete_pet(const char* id) {
     LOG_INFO("delete pet with the id: %s", id);
 
-    // Create query JSON
-    cJSON* query = cJSON_CreateObject();
-    cJSON_AddItemToObject(query, "id", cJSON_CreateString(id));
 
-    if (!db_delete("pets", query)) {
-        LOG_ERROR("Failed to delete pet");
-        cJSON_Delete(query);
+    if (!db_delete("pets", id)) {
+        LOG_ERROR("Failed to delete pet");       
         return EXIT_FAILURE;
-    }
-
-    cJSON_Delete(query);
+    }    
     return EXIT_SUCCESS;
 }
 
@@ -134,19 +130,18 @@ char* handle_get_pet_by_tags(const char* tags) {
         LOG_ERROR("Memory allocation failed");
         return NULL;
     }
+	// create query JSON: { "operator": "eq", "field": "pets.tags.name", "value": ["tag1", "tag2"] }
+	cJSON* query = cJSON_CreateObject();
+	cJSON_AddStringToObject(query, "operator", "eq");
+	cJSON_AddStringToObject(query, "field", "pets.tags.name");
+	cJSON* value = cJSON_CreateArray();
+	char* token = strtok(tags_copy, ",");
+	while (token != NULL) {
+		cJSON_AddItemToArray(value, cJSON_CreateString(token));
+		token = strtok(NULL, ",");
+	}
+	cJSON_AddItemToObject(query, "value", value);
 
-    // Create query JSON
-    cJSON* query = cJSON_CreateObject();
-    cJSON* tags_array = cJSON_CreateArray();
-
-    // Split the tags string by comma
-    char* token = strtok(tags_copy, ",");
-    while (token != NULL) {
-        cJSON_AddItemToArray(tags_array, cJSON_CreateString(token));
-        token = strtok(NULL, ",");
-    }
-
-    cJSON_AddItemToObject(query, "tags", tags_array);
 
     // Execute query
     cJSON* result = db_find("pets", query);
@@ -181,19 +176,21 @@ char* handle_get_pet_by_state(const char* statuses) {
         LOG_ERROR("Memory allocation failed");
         return NULL;
     }
+	// create the query JSON: { "operator": "eq", "field": "pets.status", "value": "[available,sold,pending]" }
+	cJSON* query = cJSON_CreateObject();
+	cJSON_AddStringToObject(query, "operator", "eq");
+	cJSON_AddStringToObject(query, "field", "pets.status");
 
-    // Create query JSON
-    cJSON* query = cJSON_CreateObject();
-    cJSON* status_array = cJSON_CreateArray();
+	cJSON* value = cJSON_CreateArray();
+	char* token = strtok(statuses_copy, ",");
+	while (token != NULL) {
+		cJSON_AddItemToArray(value, cJSON_CreateString(token));
+		token = strtok(NULL, ",");
+	}
+	cJSON_AddItemToObject(query, "value", value);
 
-    // Split the statuses string by comma
-    char* token = strtok(statuses_copy, ",");
-    while (token != NULL) {
-        cJSON_AddItemToArray(status_array, cJSON_CreateString(token));
-        token = strtok(NULL, ",");
-    }
-
-    cJSON_AddItemToObject(query, "status", status_array);
+	// Print query
+    LOG_INFO("handle_get_pet_by_state query: %s", cJSON_GetStringValue(query));
 
     // Execute query
     cJSON* result = db_find("pets", query);
@@ -227,12 +224,13 @@ char* handle_get_pet_by_id(const char* id) {
     if (result) {
         json = cJSON_PrintUnformatted(result);
         LOG_INFO("Pet found: %s", json);
-        cJSON_Delete(result);
+      
     }
     else {
         LOG_ERROR("No pet found with the given ID");
         json = strdup("{\"error\":\"Failed to find pets by id\"}");
     }
+    cJSON_Delete(result);
     return json;
 }
 
@@ -369,11 +367,9 @@ int handle_post_user_login(const char* json_payload) {
  */
 char* handle_get_all_users() {
     LOG_INFO("find_all_users");
-
-    // Create query JSON
-    cJSON* query = cJSON_CreateObject();
-
-    cJSON* result = db_find("users", query);
+	
+    // Use method find_all to get all users
+	cJSON* result = db_find_all("users");
     char* json = NULL;
     if (result) {
         json = cJSON_PrintUnformatted(result);
@@ -384,7 +380,7 @@ char* handle_get_all_users() {
         json = strdup("[]");
     }
 
-    cJSON_Delete(query);
+
     return json;
 }
 
@@ -398,11 +394,7 @@ char* handle_get_all_users() {
 char* handle_get_user_by_id(const char* id) {
     LOG_INFO("find_user_by_id with the given id : %s", id);
 
-    // Create query JSON
-    cJSON* query = cJSON_CreateObject();
-    cJSON_AddItemToObject(query, "id", cJSON_CreateString(id));
-
-    cJSON* result = db_find_one("users", query);
+    cJSON* result = db_find_one("users", id);
     char* json = NULL;
     if (result) {
         json = cJSON_PrintUnformatted(result);
@@ -414,6 +406,5 @@ char* handle_get_user_by_id(const char* id) {
         json = strdup("{\"error\":\"Failed to find user by id\"}");
     }
 
-    cJSON_Delete(query);
     return json;
 }

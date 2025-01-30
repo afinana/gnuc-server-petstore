@@ -1,4 +1,4 @@
-CC = cc
+CC = gcc
 CFLAGS_PRO = -Wall  -Wextra -g -O2 -I/usr/include/hiredis -I/usr/include/cjson
 CFLAGS = -Wall  -Wextra -g -O0 -DDEBUG -I/usr/include/hiredis -I/usr/include/cjson
 LDFLAGS = -lhiredis -lcjson -lmicrohttpd

@@ -44,7 +44,7 @@ bool db_insert(const char* collection_name, const cJSON* doc);
  * @param update The update to apply to the document.
  * @return bool Returns true on success, false on failure.
  */
-bool db_update(const char* collection_name, const char* id, const cJSON* update);
+bool db_update(const char* collection_name, const cJSON* update);
 
 /**
  * @brief Deletes a document from the specified collection.
@@ -60,11 +60,11 @@ bool db_delete(const char* collection_name, const char* id);
 /**
  * @brief Finds documents in the specified collection that match the query.
  *
- * This function searches for documents in the specified collection that match the provided query.
- * It returns a JSON document containing the results of the query.
- *
  * @param collection_name The name of the collection to search.
  * @param query The query to find the documents.
+ * Example:
+	1. { "operator": "eq", "field": "collection.status", "value": "active" }
+	2. { "operator": "eq", "field": "collection.tags.name", "value": ["tag1", "tag2"] }
  * @return cJSON* A JSON document containing the results of the query.
  *         The caller is responsible for freeing the returned document.
  */
@@ -82,5 +82,14 @@ cJSON* db_find(const char* collection_name, const cJSON* query);
  *         The caller is responsible for freeing the returned document.
  */
 cJSON* db_find_one(const char* collection_name, const char* id);
+
+/**
+ * @brief Finds all documents in the specified collection.
+ *
+ * @param collection_name The name of the collection to search.
+ * @return cJSON* A JSON document containing the results of the query.
+ *         The caller is responsible for freeing the returned document.
+ */
+cJSON* db_find_all(const char* collection_name);
 
 #endif
