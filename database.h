@@ -23,7 +23,7 @@ void db_init(const char* uri);
 void db_cleanup();
 
 /**
- * @brief Inserts a document into the specified collection.
+ * @brief Inserts a pet document into the specified collection.
  *
  * This function inserts a JSON document into the specified collection in the database.
  *
@@ -31,10 +31,22 @@ void db_cleanup();
  * @param doc The JSON document to insert.
  * @return bool Returns true on success, false on failure.
  */
-bool db_insert(const char* collection_name, const cJSON* doc);
+bool db_pet_insert(const char* collection_name, const cJSON* doc);
 
 /**
- * @brief Updates a document in the specified collection.
+ * @brief Inserts a user document into the specified collection.
+ *
+ * This function inserts a JSON document into the specified collection in the database.
+ *
+ * @param collection_name The name of the collection to insert the document into.
+ * @param doc The JSON document to insert.
+ * @return bool Returns true on success, false on failure.
+ */
+bool db_user_insert(const char* collection_name, const cJSON* doc);
+
+
+/**
+ * @brief Updates a pet document in the specified collection.
  *
  * This function updates a document in the specified collection based on the provided query.
  * The update is applied to the document(s) that match the query.
@@ -44,7 +56,20 @@ bool db_insert(const char* collection_name, const cJSON* doc);
  * @param update The update to apply to the document.
  * @return bool Returns true on success, false on failure.
  */
-bool db_update(const char* collection_name, const cJSON* update);
+bool db_pet_update(const char* collection_name, const cJSON* update);
+
+/**
+ * @brief Updates a  user document in the specified collection.
+ *
+ * This function updates a document in the specified collection based on the provided query.
+ * The update is applied to the document(s) that match the query.
+ *
+ * @param collection_name The name of the collection to update the document in.
+ * @param query The query to find the document to update.
+ * @param update The update to apply to the document.
+ * @return bool Returns true on success, false on failure.
+ */
+bool db_user_update(const char* collection_name, const cJSON* update);
 
 /**
  * @brief Deletes a document from the specified collection.

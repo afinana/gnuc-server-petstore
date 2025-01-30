@@ -75,9 +75,7 @@ static enum MHD_Result request_handler(void* cls,
         }
         return MHD_YES;
     }
-    // Log the request
-    LOG_INFO("%s %s", method, url);
-
+  
     // Handle POST /pet
     if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/pet") == 0) {
         if (*upload_data_size != 0) {
@@ -97,7 +95,7 @@ static enum MHD_Result request_handler(void* cls,
         else {
             // Process the accumulated data
             char* data = (char*)*con_cls;
-            if(handle_create_pet(data) != 0) {
+            if (handle_create_pet(data) != 0) {
                 free(data);
                 return send_response(connection, "Failed to create pet", MHD_HTTP_INTERNAL_SERVER_ERROR);
             }
@@ -297,7 +295,8 @@ int main() {
     db_init(db_uri);
 
     // Start the HTTP server
-    daemon = MHD_start_daemon(MHD_USE_POLL_INTERNAL_THREAD | MHD_USE_ERROR_LOG,
+    //daemon = MHD_start_daemon(MHD_USE_POLL_INTERNAL_THREAD | MHD_USE_ERROR_LOG,
+    daemon = MHD_start_daemon( MHD_USE_INTERNAL_POLLING_THREAD,
         listen_port,
         NULL,
         NULL,
@@ -313,7 +312,6 @@ int main() {
     }
     LOG_INFO("Server is running on http://localhost:%d", listen_port);
 
-
     // Set up signal handlers
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
@@ -322,7 +320,6 @@ int main() {
     while (keep_running) {
         sleep(1);
     }
-    //(void)getc(stdin); // Wait until the user presses Enter
 
     MHD_stop_daemon(daemon);
 
