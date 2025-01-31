@@ -8,29 +8,104 @@
 #include "database.h" // Include the database header
 #include "log-utils.h" // Include the log utils header
 
-
-
 redisContext* redis_context = NULL;
+
+#define REDIS_TIMEOUT 5
+
+/**
+ * @brief Parses a Redis URI string.
+ *
+ * This function parses a Redis URI string and extracts the host, port, and password.
+ *
+ * @param redisURI The Redis URI string to parse.
+ * @param host The host name or IP address.
+ * @param port The port number.
+ * @param password The password.
+ */
+void parseRedisURI(const char* redisURI, char* host, int* port, char* password) {
+	// Example format: redis://:mypassword@127.0.0.1:6379 or redis://:@127.0.0.1:6379
+	char temp[256];
+	strcpy(temp, redisURI);
+
+	// Remove the "redis://" prefix
+	char* uri = temp + strlen("redis://");
+
+	// Find the '@' character to split the password and host:port
+	char* atSign = strchr(uri, '@');
+	if (atSign) {
+		*atSign = '\0';  // Split password from host:port
+
+		// Extract password
+		char* passwordStart = strchr(uri, ':');
+		if (passwordStart) {
+			strcpy(password, passwordStart + 1);
+		}
+		else {
+			password[0] = '\0';  // No password
+		}
+
+		// Extract host:port
+		strcpy(host, atSign + 1);
+	}
+	else {
+		// No password, only host:port
+		strcpy(host, uri);
+		password[0] = '\0';
+	}
+
+	// Extract port
+	char* colon = strrchr(host, ':');
+	if (colon) {
+		*colon = '\0';
+		*port = atoi(colon + 1);
+	}
+	else {
+		*port = 6379;  // Default Redis port
+	}
+}
 
 /**
  * @brief Initializes the database connection.
+ * uri:"redis://:mypassword@127.0.0.1:6379"
  *
  * @param uri The URI of the database to connect to.
  */
-void db_init(const char* uri) {
-    struct timeval timeout = { 1, 500000 }; // 1.5 seconds
-    redis_context = redisConnectWithTimeout(uri, 6379, timeout);
-    if (redis_context == NULL || redis_context->err) {
-        if (redis_context) {
-            LOG_ERROR("Connection error: %s", redis_context->errstr);
-            redisFree(redis_context);
-        }
-        else {
-            LOG_ERROR("Connection error: can't allocate redis context");
-        }
-        exit(EXIT_FAILURE);
-    }
+int db_init(const char* redisURI) {
+	char host[128] = { 0 };
+	int port = 6379;
+	char password[128] = { 0 };
+	struct timeval timeout = { 1, REDIS_TIMEOUT }; // 1.5 seconds
+
+	// Parse the URI
+	parseRedisURI(redisURI, host, &port, password);
+
+	redis_context = redisConnectWithTimeout(host, port, timeout);
+	if (redis_context == NULL || redis_context->err) {
+		if (redis_context) {
+			LOG_ERROR("Connection error: %s", redis_context->errstr);
+			redisFree(redis_context);
+		}
+		else {
+			LOG_ERROR("Connection error: can't allocate redis context");
+		}
+		return(EXIT_FAILURE);
+	}
+
+	// Authenticate if password exists
+	if (strlen(password) > 0) {
+		redisReply* reply = redisCommand(redis_context, "AUTH %s", password);
+		if (reply->type == REDIS_REPLY_ERROR) {
+			printf("Authentication failed: %s\n", reply->str);
+			freeReplyObject(reply);
+			redisFree(redis_context);
+			return(EXIT_FAILURE);
+		}
+		LOG_INFO("Authentication successful\n");
+		freeReplyObject(reply);
+	}
+	return EXIT_SUCCESS;
 }
+
 
 /**
  * @brief Cleans up the database connection.

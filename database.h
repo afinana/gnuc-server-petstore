@@ -4,15 +4,16 @@
 #include <stdbool.h> // Include this header if you are working in a C environment
 #include <cjson/cJSON.h> // Include cJSON header
 
+
 /**
  * @brief Initializes the database connection.
  *
- * This function establishes a connection to the database specified by the URI.
- * It must be called before any other database operations.
+ * This function initializes the connection to the database using the provided URI.
  *
- * @param uri The URI of the database to connect to.
+ * @param redisURI The URI of the database to connect to.
+ * @return int Returns 0 on success, 1 on failure.
  */
-void db_init(const char* uri);
+int db_init(const char* redisURI);
 
 /**
  * @brief Cleans up the database connection.
