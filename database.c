@@ -216,17 +216,25 @@ bool db_user_insert(const char* collection_name, const cJSON* doc) {
 		LOG_ERROR("Failed to print JSON document");
 		return false;
 	}
-
-	// create key = collection_name:id
-	char* key = malloc(strlen(collection_name) + 20); // Allocate enough space for collection_name and integer value
+	// store json in key : collection_name:id
+	char* key = malloc(strlen(collection_name) + 20); // Allocate enough space for collection_name and integer value	
 	if (key == NULL) {
 		LOG_ERROR("Memory allocation failed for key");
 		free(json_str);
 		return false;
 	}
+	sprintf(key, "%s:%d", collection_name, id_obj->valueint);
 	
+	// store the json in collection_name:id
+	redisReply* reply = redisCommand(redis_context, "SET %s %s", key, json_str);
+	if (reply == NULL) {
+		LOG_ERROR("Insert failed: %s", redis_context->errstr);
+		return false;
+	}
+	freeReplyObject(reply);
+
 	// store the id in collection_name  
-	redisReply*  reply = redisCommand(redis_context, "SADD %s %d", collection_name, id_obj->valueint);
+	reply = redisCommand(redis_context, "SADD %s %d", collection_name, id_obj->valueint);
 	if (reply == NULL) {
 		LOG_ERROR("Insert failed: %s", redis_context->errstr);
 		return false;
@@ -237,14 +245,17 @@ bool db_user_insert(const char* collection_name, const cJSON* doc) {
 	cJSON* username_obj = cJSON_GetObjectItem(doc, "username");
 	if (username_obj == NULL) {
 		LOG_ERROR("Document does not contain a username");
-		free(json_str);
-		free(key);
+		free(json_str);		
 		return false;
 	}
-	sprintf(key, "%s:%s", collection_name, username_obj->valuestring);
+
+	// clear key
+	memset(key, 0, strlen(collection_name) + 20);
 	
-	
+	// Add to the set collection_name:field_name:field_value the object id
+	sprintf(key, "%s:%s:%s", collection_name, "username",username_obj->valuestring);	
 	reply = redisCommand(redis_context, "SET %s %d", key, id_obj->valueint);
+	
 	if (reply == NULL) {
 		LOG_ERROR("Insert failed: %s", redis_context->errstr);
 		free(json_str);
@@ -305,8 +316,17 @@ bool db_user_delete(const char* collection_name, const char* id) {
 		return false;
 	}
 	int doc_id = id_obj->valueint;
-	cJSON* status_obj = cJSON_GetObjectItem(doc, "username");
-	if (!remove_document_from_field(collection_name, status_obj, doc_id)) {
+	cJSON* field_obj = cJSON_GetObjectItem(doc, "username");
+	
+	// generate string key=collection_name:username
+	char* field_id = malloc(strlen(collection_name) + 20); // Allocate enough space for collection_name and integer value	
+	if (field_id == NULL) {
+		LOG_ERROR("Memory allocation failed for key");		
+		return false;
+	}
+	sprintf(field_id, "%s:%s", collection_name, "username");
+
+	if (!remove_document_from_field(field_id, field_obj, doc_id)) {
 		return false;
 	}
 
@@ -373,7 +393,7 @@ bool store_tags(const char* collection_name, const cJSON* tags_obj, int id) {
 					return false;
 				}
 				sprintf(key, "%s:%s", collection_name, name);
-				redisReply* reply = redisAppendCommand(redis_context, "SADD %s %d", key, id);
+				redisReply* reply = redisCommand(redis_context, "SADD %s %d", key, id);
 				if (reply == NULL) {
 					LOG_ERROR("Insert failed: %s", redis_context->errstr);
 					free(key);
@@ -490,27 +510,34 @@ cJSON* db_find(const char* collection_name, const cJSON* query) {
 		return NULL;
 	}
 	// get the operator, field and value
-	//char* operator = cJSON_GetStringValue(operator_obj);
+	char* operator = cJSON_GetStringValue(operator_obj);
+	if (operator == NULL) {
+		LOG_ERROR("Operator is not a string");
+		return NULL;
+	}
+	// get the field name
 	char* field = cJSON_GetStringValue(field_obj);
 	if (field == NULL) {
 		LOG_ERROR("Field is not a string");
 		return NULL;	
 	}
-	// get the value
+	// check if the value is a string or an array
 	if (cJSON_IsString(value_obj)) {
 		char* value = cJSON_GetStringValue(value_obj);
 		if (value == NULL) {
 			LOG_ERROR("Value is not a string");
 			return NULL;
 		}
-		// get all the keys from the collection_name:status
-		redisReply* reply = redisCommand(redis_context, "HKEYS %s:%s", collection_name, value);
+		// get all the keys from the collection_name:field:value 
+		redisReply* reply = redisCommand(redis_context, "HKEYS %s:%s:%s", collection_name, field, value);
 		if (reply == NULL) {
 			LOG_ERROR("Find failed: %s", redis_context->errstr);
 			return NULL;
 		}
-		// for each key in the collection_name:status and create an array of documents
+		// create a new cJSON object collection
 		cJSON* result = cJSON_CreateArray();
+
+		// for each key in the collection_name:field:value and create an array of documents
 		for (int i = 0; i < (int) reply->elements; i++) {
 			// get the id from the key
 			char* id = reply->element[i]->str;
@@ -528,9 +555,9 @@ cJSON* db_find(const char* collection_name, const cJSON* query) {
 			}
 		}
 		return result;
-	}
+	} 
 	else if (cJSON_IsArray(value_obj)) {
-		// get the array size
+		// field is an array of values		
 		int array_size = cJSON_GetArraySize(value_obj);
 		// create a new cJSON object collection
 		cJSON* result = cJSON_CreateArray();
@@ -616,11 +643,14 @@ cJSON* db_find_all(const char* collection_name) {
 }
 
 // Common utils shared by all collections
+// --------------------------------------
 
-bool remove_document_from_field(const char* collection_name, const cJSON* field_name, int id) {
-
+// clear field index from database
+bool remove_document_from_field(const char* field_id, const cJSON* field_name, int id) {
+	
+	// remove document id from field name index
 	if (field_name != NULL) {
-		redisReply* reply = redisCommand(redis_context, "SREM %s:%s %d", collection_name, field_name->valuestring, id);
+		redisReply* reply = redisCommand(redis_context, "SREM %s:%s %d", field_id, field_name->valuestring, id);
 		if (reply == NULL) {
 			LOG_ERROR("Delete failed: %s", redis_context->errstr);
 			return false;
@@ -630,15 +660,29 @@ bool remove_document_from_field(const char* collection_name, const cJSON* field_
 	return true;
 }
 
+// clear document information from database
 bool remove_document_from_collection(const char* collection_name, int id) {
-	redisReply* reply = redisCommand(redis_context, "HDEL %s %d", collection_name, id);
+	
+	// remove document id from index
+	redisReply* reply = redisCommand(redis_context, "SREM %s %d", collection_name, id);
 	if (reply == NULL) {
 		LOG_ERROR("Delete failed: %s", redis_context->errstr);
 		return false;
 	}
 	freeReplyObject(reply);
+
+	// remove document from collection
+	reply = redisCommand(redis_context, "DEL %s:%d", collection_name, id);
+	if (reply == NULL) {
+		LOG_ERROR("Delete failed: %s", redis_context->errstr);
+		return false;
+	}
+	freeReplyObject(reply);
+
 	return true;
 }
+
+// store document in collection_name:id
 bool store_document(const char* collection_name, const cJSON* doc, int id) {
 	char* json_str = cJSON_PrintUnformatted(doc);
 	if (json_str == NULL) {

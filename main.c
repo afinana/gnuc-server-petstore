@@ -138,7 +138,7 @@ static enum MHD_Result request_handler(void* cls,
     }
     // Handle DELETE /pet/{id}
     else if (strncmp(url, "/v2/pet/", 7) == 0 && strcmp(method, "DELETE") == 0) {
-        const char* id = url + 7; // Extract ID from URL
+        const char* id = url + 8; // Extract ID from URL
         if (handle_delete_pet(id) != 0) {
             return send_response(connection, "Failed to delete pet", MHD_HTTP_INTERNAL_SERVER_ERROR);
         }

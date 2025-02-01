@@ -275,7 +275,7 @@ char* handle_get_user_by_username(const char* username) {
 
 	// Example query: { "operator": "eq", "field" : "username", "value" : "email_user@example.com" }
 	cJSON* query = cJSON_CreateObject();
-	cJSON_AddStringToObject(query, "operator", "eq");
+	cJSON_AddStringToObject(query, "operator", "eq");	
 	cJSON_AddStringToObject(query, "field", "username");
 	cJSON_AddStringToObject(query, "value", username);
 
