@@ -73,7 +73,7 @@ bool db_pet_update(const char* collection_name, const cJSON* update);
 bool db_user_update(const char* collection_name, const cJSON* update);
 
 /**
- * @brief Deletes a document from the specified collection.
+ * @brief Deletes a document from the pet collection.
  *
  * This function deletes a document from the specified collection based on the provided query.
  *
@@ -81,7 +81,7 @@ bool db_user_update(const char* collection_name, const cJSON* update);
  * @param query The query to find the document to delete.
  * @return bool Returns true on success, false on failure.
  */
-bool db_delete(const char* collection_name, const char* id);
+bool db_pet_delete(const char* collection_name, const char* id);
 
 /**
  * @brief Finds documents in the specified collection that match the query.
@@ -117,5 +117,24 @@ cJSON* db_find_one(const char* collection_name, const char* id);
  *         The caller is responsible for freeing the returned document.
  */
 cJSON* db_find_all(const char* collection_name);
+
+/**
+ * @brief Deletes a document from the user collection.
+ *
+ * This function deletes a document from the specified collection based on the provided query.
+ *
+ * @param collection_name The name of the collection to delete the document from.
+ * @param query The query to find the document to delete.
+ * @return bool Returns true on success, false on failure.
+ */
+bool db_user_delete(const char* collection_name, const char* id);
+
+
+// Helper functions for pet methods
+bool store_tags(const char* collection_name, const cJSON* tags_obj, int id);
+bool store_document(const char* collection_name, const cJSON* doc, int id);
+bool remove_document_from_collection(const char* collection_name, int id);
+bool remove_document_from_field(const char* collection_name, const cJSON* field_name, int id);
+bool remove_document_from_tags(const char* collection_name, const cJSON* doc, int id);
 
 #endif

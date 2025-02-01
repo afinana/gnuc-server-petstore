@@ -75,7 +75,7 @@ int handle_update_pet(const char* json_payload) {
 int handle_delete_pet(const char* id) {
     LOG_INFO("delete pet with the id: %s", id);
 
-    if (!db_delete("pets", id)) {
+    if (!db_pet_delete("pets", id)) {
         LOG_ERROR("Failed to delete pet");
         return EXIT_FAILURE;
     }
@@ -256,7 +256,7 @@ int handle_update_user(const char* json_payload) {
 int handle_delete_user(const char* id) {
     LOG_INFO("delete user with the id: %s", id);
 
-    if (!db_delete("users", id)) {
+    if (!db_user_delete("users", id)) {
         LOG_ERROR("Failed to delete user");
         return EXIT_FAILURE;
     }
@@ -273,9 +273,12 @@ int handle_delete_user(const char* id) {
 char* handle_get_user_by_username(const char* username) {
     LOG_INFO("find_users_by_username with the given username: %s", username);
 
-    // Create query JSON
-    cJSON* query = cJSON_CreateObject();
-    cJSON_AddItemToObject(query, "username", cJSON_CreateString(username));
+	// Example query: { "operator": "eq", "field" : "username", "value" : "email_user@example.com" }
+	cJSON* query = cJSON_CreateObject();
+	cJSON_AddStringToObject(query, "operator", "eq");
+	cJSON_AddStringToObject(query, "field", "username");
+	cJSON_AddStringToObject(query, "value", username);
+
 
     cJSON* result = db_find("users", query);
     char* json = NULL;
