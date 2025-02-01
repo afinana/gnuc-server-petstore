@@ -140,7 +140,7 @@ static enum MHD_Result request_handler(void* cls,
     else if (strncmp(url, "/v2/pet/", 7) == 0 && strcmp(method, "DELETE") == 0) {
         const char* id = url + 8; // Extract ID from URL
         if (handle_delete_pet(id) != 0) {
-            return send_response(connection, "Failed to delete pet", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to delete pet", MHD_HTTP_NOT_FOUND);
         }
         return send_response(connection, "Pet deleted successfully", MHD_HTTP_OK);
     }
@@ -171,7 +171,7 @@ static enum MHD_Result request_handler(void* cls,
         const char* id = url + 8; // Extract ID from URL
         char* result = handle_get_pet_by_id(id);
         if (result == NULL) {
-            return send_response(connection, "Failed to find pet by ID", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to find pet by ID", MHD_HTTP_NOT_FOUND);
         }
         int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
@@ -209,7 +209,7 @@ static enum MHD_Result request_handler(void* cls,
         const char* username = url + 9; // Extract ID from URL
         char* result = handle_get_user_by_username(username);
         if (result == NULL) {
-            return send_response(connection, "Failed to find user by username", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to find user by username", MHD_HTTP_NOT_FOUND);
         }
         int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
@@ -229,7 +229,7 @@ static enum MHD_Result request_handler(void* cls,
     else if (strncmp(url, "/v2/user/", 9) == 0 && strcmp(method, "DELETE") == 0) {
         const char* username = url + 9; // Extract ID from URL
         if (handle_delete_user(username) != 0) {
-            return send_response(connection, "Failed to delete user", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to delete user", MHD_HTTP_NOT_FOUND);
         }
         return send_response(connection, "User deleted successfully", MHD_HTTP_OK);
     }

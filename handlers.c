@@ -21,8 +21,6 @@ int handle_create_pet(const char* json_payload) {
         LOG_ERROR("Failed to parse JSON");
         return EXIT_FAILURE;
     }
-    // prints the json document
-    LOG_INFO("create pet document: %s", cJSON_Print(doc));
     if (!db_pet_insert("pets", doc)) {
         LOG_ERROR("Failed to insert pet");
         cJSON_Delete(doc);
@@ -193,8 +191,7 @@ char* handle_get_pet_by_id(const char* id) {
         cJSON_Delete(result);
     }
     else {
-        LOG_ERROR("No pet found with the given ID");
-        json = strdup("{\"error\":\"Failed to find pets by id\"}");
+        LOG_ERROR("No pet found with the given ID");       
     }
     return json;
 }
@@ -287,8 +284,7 @@ char* handle_get_user_by_username(const char* username) {
         cJSON_Delete(result);
     }
     else {
-        LOG_ERROR("No users found with the given username");
-        json = strdup("[]");
+        LOG_ERROR("No users found with the given username");       
     }
 
     cJSON_Delete(query);
