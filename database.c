@@ -118,6 +118,7 @@ void db_cleanup() {
  * @return bool Returns true on success, false on failure.
  */
 bool db_pet_insert(const char* collection_name, const cJSON* doc) {
+	
 	cJSON* id_obj = cJSON_GetObjectItem(doc, "id");
 	if (id_obj == NULL) {
 		LOG_ERROR("Document does not contain an id");
@@ -132,6 +133,7 @@ bool db_pet_insert(const char* collection_name, const cJSON* doc) {
 	}
 
 	// save status field index
+	LOG_INFO("SADD %s:%s %d", collection_name, status_obj->valuestring, id);
 	redisReply* reply = redisCommand(redis_context, "SADD %s:%s %d", collection_name, status_obj->valuestring, id);
 	if (reply == NULL) {
 		LOG_ERROR("Insert status failed: %s", redis_context->errstr);
@@ -154,9 +156,11 @@ bool db_pet_insert(const char* collection_name, const cJSON* doc) {
 	
 	// Add to the set collection_name:field_name:field_value the object id
 	sprintf(key, "%s:%s", collection_name, collection_name);
-	
+	LOG_INFO("SADD %s %d", key, id_obj->valueint);
+
 	// store the id in collection_name  
 	reply = redisCommand(redis_context, "SADD %s %d", key, id_obj->valueint);
+	
 	if (reply == NULL) {
 		LOG_ERROR("Insert failed: %s", redis_context->errstr);
 		free(key);
@@ -399,6 +403,7 @@ bool db_pet_delete(const char* collection_name, const char* id) {
 // Helper functions for pet methods
 
 bool store_tags(const char* collection_name, const cJSON* tags_obj, int id) {
+	
 	if (tags_obj != NULL && cJSON_IsArray(tags_obj)) {
 		int array_size = cJSON_GetArraySize(tags_obj);
 		for (int i = 0; i < array_size; i++) {
@@ -416,6 +421,8 @@ bool store_tags(const char* collection_name, const cJSON* tags_obj, int id) {
 					return false;
 				}
 				sprintf(key, "%s:%s", collection_name, name);
+				LOG_INFO("SADD %s %d", key, id);
+
 				redisReply* reply = redisCommand(redis_context, "SADD %s %d", key, id);
 				if (reply == NULL) {
 					LOG_ERROR("Insert failed: %s", redis_context->errstr);
@@ -432,6 +439,7 @@ bool store_tags(const char* collection_name, const cJSON* tags_obj, int id) {
 
 
 bool remove_document_from_tags(const char* collection_name, const cJSON* doc, int id) {
+	
 	cJSON* tags_obj = cJSON_GetObjectItem(doc, "tags");
 	if (tags_obj != NULL && cJSON_IsArray(tags_obj)) {
 		int array_size = cJSON_GetArraySize(tags_obj);
@@ -450,6 +458,8 @@ bool remove_document_from_tags(const char* collection_name, const cJSON* doc, in
 					return false;
 				}
 				sprintf(key, "%s:%s", collection_name, name);
+				LOG_INFO("SREM %s %d", key, id);
+
 				redisReply* reply = redisCommand(redis_context, "SREM %s %d", key, id);
 				if (reply == NULL) {
 					LOG_ERROR("Delete failed: %s", redis_context->errstr);
@@ -482,6 +492,7 @@ cJSON* db_find_one(const char* collection_name, const char* id) {
 	sprintf(key, "%s:%s", collection_name, id);
     
     // For simplicity, assume query is the key
+	LOG_INFO("GET %s", key);
     redisReply* reply = redisCommand(redis_context, "GET %s", key);
     if (reply == NULL || reply->type != REDIS_REPLY_STRING) {
         if (reply) freeReplyObject(reply);
@@ -552,7 +563,7 @@ cJSON* db_find(const char* collection_name, const cJSON* query) {
 			return NULL;
 		}
 		// get all the keys from the collection_name:field:value 
-		LOG_INFO("HKEYS %s:%s:%s", collection_name, field, value);
+		LOG_INFO("SMEMBERS %s:%s:%s", collection_name, field, value);
 
 		redisReply* reply = redisCommand(redis_context, "SMEMBERS %s:%s:%s", collection_name, field, value);
 		if (reply == NULL) {
@@ -672,6 +683,8 @@ bool remove_document_from_field(const char* field_id, const cJSON* field_name, i
 	
 	// remove document id from field name index
 	if (field_name != NULL) {
+
+		LOG_INFO("SREM %s:%s %d", field_id, field_name->valuestring, id);
 		redisReply* reply = redisCommand(redis_context, "SREM %s:%s %d", field_id, field_name->valuestring, id);
 		if (reply == NULL) {
 			LOG_ERROR("Delete failed: %s", redis_context->errstr);
@@ -686,6 +699,7 @@ bool remove_document_from_field(const char* field_id, const cJSON* field_name, i
 bool remove_document_from_collection(const char* collection_name, int id) {
 	
 	// remove document id from index
+	LOG_INFO("SREM %s %d", collection_name, id);
 	redisReply* reply = redisCommand(redis_context, "SREM %s %d", collection_name, id);
 	if (reply == NULL) {
 		LOG_ERROR("Delete failed: %s", redis_context->errstr);
@@ -694,6 +708,7 @@ bool remove_document_from_collection(const char* collection_name, int id) {
 	freeReplyObject(reply);
 
 	// remove document from collection
+	LOG_INFO("DEL %s:%d", collection_name, id);
 	reply = redisCommand(redis_context, "DEL %s:%d", collection_name, id);
 	if (reply == NULL) {
 		LOG_ERROR("Delete failed: %s", redis_context->errstr);
@@ -719,6 +734,7 @@ bool store_document(const char* collection_name, const cJSON* doc, int id) {
 		return false;
 	}
 	sprintf(key, "%s:%d", collection_name, id);
+	LOG_INFO("SET %s %s", key, json_str);
 	redisReply* reply = redisCommand(redis_context, "SET %s %s", key, json_str);
 	if (reply == NULL) {
 		LOG_ERROR("Insert failed: %s", redis_context->errstr);
