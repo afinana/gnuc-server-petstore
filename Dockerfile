@@ -1,6 +1,11 @@
 # Stage 1: Builder
 FROM gcc:latest AS builder
 
+LABEL maintainer="Middleland Software"
+LABEL version="1.0"
+LABEL description="Dockerfile for building the gnuc-server-petstore application"
+
+
 # Set the working directory
 WORKDIR /app
 

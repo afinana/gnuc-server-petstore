@@ -1,3 +1,9 @@
+#include <sys/types.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <netinet/in.h> // Include this header for sockaddr_in, htonl, and htons
+#include <arpa/inet.h>  // Include this header for inet_addr
+
 #include <microhttpd.h>
 #include <stdio.h>
 #include <string.h>
@@ -75,7 +81,7 @@ static enum MHD_Result request_handler(void* cls,
         }
         return MHD_YES;
     }
-  
+
     // Handle POST /pet
     if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/pet") == 0) {
         if (*upload_data_size != 0) {
@@ -132,9 +138,9 @@ static enum MHD_Result request_handler(void* cls,
     }
     // Handle DELETE /pet/{id}
     else if (strncmp(url, "/v2/pet/", 7) == 0 && strcmp(method, "DELETE") == 0) {
-        const char* id = url + 7; // Extract ID from URL
+        const char* id = url + 8; // Extract ID from URL
         if (handle_delete_pet(id) != 0) {
-            return send_response(connection, "Failed to delete pet", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to delete pet", MHD_HTTP_NOT_FOUND);
         }
         return send_response(connection, "Pet deleted successfully", MHD_HTTP_OK);
     }
@@ -165,7 +171,7 @@ static enum MHD_Result request_handler(void* cls,
         const char* id = url + 8; // Extract ID from URL
         char* result = handle_get_pet_by_id(id);
         if (result == NULL) {
-            return send_response(connection, "Failed to find pet by ID", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to find pet by ID", MHD_HTTP_NOT_FOUND);
         }
         int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
@@ -203,7 +209,7 @@ static enum MHD_Result request_handler(void* cls,
         const char* username = url + 9; // Extract ID from URL
         char* result = handle_get_user_by_username(username);
         if (result == NULL) {
-            return send_response(connection, "Failed to find user by username", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to find user by username", MHD_HTTP_NOT_FOUND);
         }
         int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
@@ -223,7 +229,7 @@ static enum MHD_Result request_handler(void* cls,
     else if (strncmp(url, "/v2/user/", 9) == 0 && strcmp(method, "DELETE") == 0) {
         const char* username = url + 9; // Extract ID from URL
         if (handle_delete_user(username) != 0) {
-            return send_response(connection, "Failed to delete user", MHD_HTTP_INTERNAL_SERVER_ERROR);
+            return send_response(connection, "Failed to delete user", MHD_HTTP_NOT_FOUND);
         }
         return send_response(connection, "User deleted successfully", MHD_HTTP_OK);
     }
@@ -277,32 +283,52 @@ static enum MHD_Result request_handler(void* cls,
  */
 int main() {
     struct MHD_Daemon* daemon;
+    struct sockaddr_in loopback_addr;
+    char ipAddr[INET_ADDRSTRLEN];
+    int listen_port = 0;
 
-    // Read the port from the environment variable
-    const char* env_port = getenv("port");
-    int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
+    // Read the server address from the environment variable
+    const char* server_addr = getenv("serverAddr");
+    if (server_addr == NULL) {
+        // Use default address and port if not provided
+        server_addr = "0.0.0.0:8080";
+    }
+
+    // Parse ipAddr and listen_port from server_addr
+    if (sscanf(server_addr, "%15[^:]:%d", ipAddr, &listen_port) != 2) {
+        LOG_ERROR("Invalid server address format. Expected format: ip:port");
+        return 1;
+    }
 
     // Read the database URI from the environment variable
     const char* db_uri = getenv("redisURI");
     if (db_uri == NULL) {
         // Use default URI if not provided
-        db_uri = "127.0.0.1";
+        db_uri = "redis://:@127.0.0.1:6379";
     }
     // Log db_uri
     LOG_INFO("redisURI: %s", db_uri);
 
-    // Initialize the database
-    db_init(db_uri);
+    // Initialize the database and check for errors
+    if (db_init(db_uri) != EXIT_SUCCESS) {
+        LOG_ERROR("Failed to initialize the database");
+        return 1;
+    }
+
+    memset(&loopback_addr, 0, sizeof(loopback_addr));
+    loopback_addr.sin_family = AF_INET;
+    loopback_addr.sin_port = htons(listen_port);
+    loopback_addr.sin_addr.s_addr = inet_addr(ipAddr);
 
     // Start the HTTP server
-    //daemon = MHD_start_daemon(MHD_USE_POLL_INTERNAL_THREAD | MHD_USE_ERROR_LOG,
-    daemon = MHD_start_daemon( MHD_USE_INTERNAL_POLLING_THREAD,
+    daemon = MHD_start_daemon(MHD_USE_INTERNAL_POLLING_THREAD,
         listen_port,
         NULL,
         NULL,
         &request_handler,
         NULL,
         MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int)120,
+        MHD_OPTION_SOCK_ADDR, (struct sockaddr*)(&loopback_addr),
         MHD_OPTION_END);
 
     if (NULL == daemon) {
@@ -310,7 +336,7 @@ int main() {
         db_cleanup();
         return 1;
     }
-    LOG_INFO("Server is running on http://localhost:%d", listen_port);
+    LOG_INFO("Server is running on http://%s:%d", ipAddr, listen_port);
 
     // Set up signal handlers
     signal(SIGINT, handle_signal);
@@ -330,3 +356,4 @@ int main() {
 
     return 0;
 }
+
