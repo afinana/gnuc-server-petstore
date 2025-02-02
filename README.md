@@ -28,32 +28,6 @@ The API will include the following endpoints:
 ### Install Dependencies**
 Ensure you have `libmicrohttpd` and `hiredis` installed. Use a package manager (e.g., `apt`, `yum`, or `brew`) to install it:
 
-The API will include the following endpoints:
-
-1. **Routes**:
-   - **POST `/pet`**: Creates a new pet using `create_pet`.
-   - **PUT `/pet`**: Updates an existing pet using `update_pet`.
-   - **DELETE `/pet/{id}`**: Deletes a pet by its ID using `delete_pet`.
-   - **GET `/pet/findByTags`**: Retrieves pets by tags using `find_by_tags`.
-   - **GET `/pet/findByState`**: Retrieves pets by state using `find_by_state`.
-
-2. **Microhttpd**:
-   - The `MHD_Daemon` starts a server that listens on the specified port.
-   - Incoming requests are routed based on their `method` and `url`.
-
-3. **Database Initialization**:
-   - `db_init` initializes the MongoDB connection.
-   - `db_cleanup` closes the connection.
-
-4. **Memory Management**:
-   - JSON payloads are processed dynamically, ensuring efficient use of memory.
-
-
-### Install Dependencies**
-
-### Install Dependencies**
-Ensure you have `libmicrohttpd` and `hiredis` installed. Use a package manager (e.g., `apt`, `yum`, or `brew`) to install it:
-
 ```bash
 sudo apt-get install libmicrohttpd-dev libhiredis-dev libcjson-dev
 ```
