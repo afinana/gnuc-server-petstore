@@ -389,7 +389,9 @@ bool db_pet_delete(const char* collection_name, const char* id) {
  * @return true on success, false on failure
  */
 bool store_tags(const char* collection_name, const cJSON* tags_obj, int id, int* num_op) {
+   
     if (tags_obj != NULL && cJSON_IsArray(tags_obj)) {
+    
         int array_size = cJSON_GetArraySize(tags_obj);
         for (int i = 0; i < array_size; i++) {
             cJSON* tag = cJSON_GetArrayItem(tags_obj, i);
@@ -419,7 +421,9 @@ bool store_tags(const char* collection_name, const cJSON* tags_obj, int id, int*
  * @return true on success, false on failure
  */
 bool remove_document_from_tags(const char* collection_name, const cJSON* doc, int id, int* op_number) {
+  
     cJSON* tags_obj = cJSON_GetObjectItem(doc, "tags");
+    
     if (tags_obj != NULL && cJSON_IsArray(tags_obj)) {
         int array_size = cJSON_GetArraySize(tags_obj);
         for (int i = 0; i < array_size; i++) {
@@ -546,11 +550,10 @@ cJSON* db_find(const char* collection_name, const cJSON* query) {
 
     reply = NULL;
     cJSON* result = cJSON_CreateArray();
-
     for (int i = 0; i < op_getid_num; i++) {
         int resultCode = redisGetReply(redis_context, (void**)&reply);
         if (resultCode == REDIS_OK) {
-            LOG_INFO("Response [%d]: %s", i, reply->str ? reply->str : "(nil)");
+            
             if (reply->type == REDIS_REPLY_STRING) {
                 char* json = strdup(reply->str);
                 cJSON* doc = cJSON_Parse(json);
@@ -576,17 +579,37 @@ cJSON* db_find(const char* collection_name, const cJSON* query) {
  * @return cJSON* The JSON array of documents found, or NULL on failure
  */
 cJSON* db_find_all(const char* collection_name) {
+
+	// Get all the document IDs from the collection
     LOG_INFO("SMEMBERS %s:%s", collection_name, collection_name);
     redisAppendCommand(redis_context, "SMEMBERS %s:%s", collection_name, collection_name);
-
     redisReply* reply = NULL;
-    int op_getid_num = 0;
-
+   
+	// Get the document for each ID
+	int op_getid_num = 0;
+    int resultCode = redisGetReply(redis_context, (void**)&reply);
+    if (resultCode == REDIS_OK) {
+        for (size_t j = 0; j < reply->elements; j++) {
+            char* set_id = reply->element[j]->str;
+            LOG_INFO("GET %s:%s", collection_name, set_id);
+            redisAppendCommand(redis_context, "GET %s:%s", collection_name, set_id);
+            op_getid_num++;
+        }
+        freeReplyObject(reply);
+    }
+    else {
+        freeReplyAndLogError(reply, "Error processing redis reply");
+        return NULL;
+    }   
+    
+    reply = NULL;
     cJSON* result = cJSON_CreateArray();
-
+	
+    // Get the document for each ID
     for (int i = 0; i < op_getid_num; i++) {
         int resultCode = redisGetReply(redis_context, (void**)&reply);
         if (resultCode == REDIS_OK) {
+            
             LOG_INFO("Response [%d]: %s", i, reply->str ? reply->str : "(nil)");
             if (reply->type == REDIS_REPLY_STRING) {
                 char* json = strdup(reply->str);
@@ -603,7 +626,8 @@ cJSON* db_find_all(const char* collection_name) {
             return NULL;
         }
     }
-    return result;
+    return result;    
+   
 }
 
 /**

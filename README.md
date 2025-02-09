@@ -1,10 +1,12 @@
 ### Introduction
 
-This project is a **RESTful Pet Store API** built in **glib C**, using the **Redis** for database operations and **cJSON** for JSON processing.
+This project is a **RESTful Pet Store API** built in **glib C**, using **Redis** for database operations and **cJSON** for JSON processing.
+
 It provides endpoints to manage pet data, including creation, retrieval, updating, and deletion. 
+
 The project is structured with a **Makefile** for efficient build automation, ensuring smooth compilation and dependency management.
 
-The API will include the following endpoints:
+The API includes the following endpoints:
 
 1. **Routes**:
    - **POST `/pet`**: Creates a new pet using `create_pet`.
@@ -24,9 +26,10 @@ The API will include the following endpoints:
 4. **Memory Management**:
    - JSON payloads are processed dynamically using cJSON, ensuring efficient use of memory.
 
+### Install Dependencies
 
-### Install Dependencies**
-Ensure you have `libmicrohttpd` and `hiredis` installed. Use a package manager (e.g., `apt`, `yum`, or `brew`) to install it:
+Ensure you have `libmicrohttpd`, `hiredis`, and `cjson` installed. Use a package manager (e.g., `apt`, `yum`, or `brew`) to install them:
+
 
 ```bash
 sudo apt-get install libmicrohttpd-dev libhiredis-dev libcjson-dev
@@ -55,7 +58,7 @@ Run the compiled server:
 ./server
 ```
 
-The server will listen on `http://localhost:8888`. You can test it with tools like `curl` or Postman:
+The server will listen on `http://localhost:8080`. You can test it with tools like `curl` or Postman:
 
 
 ---
@@ -91,8 +94,7 @@ We create a **multi-stage Dockerfile** that includes the build process in the co
 docker build . -t petstore-api 
 
 # Run the Docker container
-docker run -p 8080:8080 petstore-api -e mongoURI="mongodb://root:password@localhost:27017"
-```
+docker run -p 8080:8080 -e redisURI="redis://password@localhost:27017" petstore-api```
 
 ---
 
@@ -103,9 +105,6 @@ After running the container, test the API as usual:
 ```bash
 curl -X POST -d '{"id":2,"name":"cat2"}' http://localhost:8888/pet
 ```
-
--
-
 
 ---
 
