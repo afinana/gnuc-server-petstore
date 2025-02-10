@@ -74,7 +74,7 @@ int handle_update_pet(const char* json_payload) {
 
     // Read the JSON payload and extract the id field
     cJSON* id_item = cJSON_GetObjectItem(update, "id");
-    if (!cJSON_IsString(id_item)) {
+    if (!cJSON_IsNumber(id_item)) {
         LOG_ERROR("Failed to find 'id' field in JSON");
         cJSON_Delete(update);
         return EXIT_FAILURE;
@@ -202,11 +202,20 @@ int handle_create_user(const char* json_payload) {
  * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
 int handle_update_user(const char* json_payload) {
-    LOG_INFO("handle_update_user");
+   
+    LOG_INFO("handle_update_user");   
     cJSON* update = parse_json(json_payload);
     if (!update) return EXIT_FAILURE;
 
-    int result = db_user_update("users", update) ? EXIT_SUCCESS : EXIT_FAILURE;
+    // Read the JSON payload and extract the id field
+    cJSON* id_item = cJSON_GetObjectItem(update, "id");
+    if (!cJSON_IsNumber(id_item)) {
+        LOG_ERROR("Failed to find 'id' field in JSON");
+        cJSON_Delete(update);
+        return EXIT_FAILURE;
+    }
+
+    int result = db_pet_update("users", update) ? EXIT_SUCCESS : EXIT_FAILURE;
     if (result == EXIT_FAILURE) {
         LOG_ERROR("Failed to update user");
     }
