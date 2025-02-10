@@ -17,8 +17,8 @@ static const char* current_time() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     struct tm* timeinfo = localtime(&tv.tv_sec);
-    strftime(buffer, sizeof(buffer) - 5, "%Y-%m-%d %H:%M:%S", timeinfo);
-    snprintf(buffer + 19, 6, ".%03ld", tv.tv_usec / 1000); // Add milliseconds
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+    snprintf(buffer + 19, sizeof(buffer) - 19, ".%03ld", tv.tv_usec / 1000); // Add milliseconds
     return buffer;
 }
 
