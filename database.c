@@ -200,8 +200,11 @@ bool db_pet_update(const char* collection_name, const cJSON* update) {
         LOG_ERROR("Update document does not contain an id");
         return false;
     }
+    char id[20];
+	//convert int to string
+	sprintf(id, "%d", id_obj->valueint);
 
-    if (!db_pet_delete(collection_name, id_obj->valuestring)) {
+    if (!db_pet_delete(collection_name, id)) {
         LOG_ERROR("Failed to delete document before updating");
         return false;
     }
@@ -285,7 +288,11 @@ bool db_user_update(const char* collection_name, const cJSON* update) {
         return false;
     }
 
-    if (!db_user_delete(collection_name, id_obj->valuestring)) {
+    char id[20];
+    // Convert int to string
+    sprintf(id, "%d", id_obj->valueint);
+
+    if (!db_user_delete(collection_name, id)) {
         LOG_ERROR("Failed to delete document before updating");
         return false;
     }
