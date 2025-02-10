@@ -22,6 +22,8 @@ volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
+        // add a LOG_ERROR message
+        LOG_ERROR("Termination signal (%d) received, shutting down...", signal);
         keep_running = 0;
     }
 }

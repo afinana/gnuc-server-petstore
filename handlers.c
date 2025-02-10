@@ -244,10 +244,9 @@ char* handle_get_user_by_username(const char* username) {
 	LOG_INFO("find_users_by_username with the given username: %s", username);
 
 	// Example query: { "operator": "eq", "field" : "username", "value" : "email_user@example.com" }
-	cJSON* query = cJSON_CreateObject();
-	cJSON_AddStringToObject(query, "operator", "eq");
-	cJSON_AddStringToObject(query, "field", "username");
-	cJSON_AddStringToObject(query, "value", username);
+	cJSON* query = create_query("users:username", "eq", username);
+	if (!query) return strdup("[]");
+
 
 	cJSON* result = db_find("users", query);
 	char* json = result ? cJSON_PrintUnformatted(result) : strdup("{\"error\":\"No users found with the given username\"}");
