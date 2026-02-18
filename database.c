@@ -6,42 +6,43 @@
 #include "database.h"
 #include "log-utils.h"
 
-// Single client; collection is always a local variable for thread safety
-static mongoc_client_t* client = NULL;
+// Thread-safe connection pool
+static mongoc_client_pool_t* pool = NULL;
 
-/**
- * @brief Initializes the database connection.
- *
- * @param uri The URI of the database to connect to.
- */
+// Initializes the MongoDB connection pool
 void db_init(const char* uri) {
     mongoc_init();
-    client = mongoc_client_new(uri);
-    if (!client) {
-        LOG_ERROR("Failed to initialize MongoDB client");
+
+    bson_error_t error;
+    mongoc_uri_t* mongoc_uri = mongoc_uri_new_with_error(uri, &error);
+    if (!mongoc_uri) {
+        LOG_ERROR("Failed to parse MongoDB URI: %s", error.message);
         exit(EXIT_FAILURE);
     }
+
+    pool = mongoc_client_pool_new(mongoc_uri);
+    if (!pool) {
+        LOG_ERROR("Failed to create MongoDB connection pool");
+        mongoc_uri_destroy(mongoc_uri);
+        exit(EXIT_FAILURE);
+    }
+
+    mongoc_client_pool_max_size(pool, 10);
+    mongoc_uri_destroy(mongoc_uri);
 }
 
-/**
- * @brief Cleans up the database connection.
- */
+// Cleans up the connection pool
 void db_cleanup() {
-    if (client) {
-        mongoc_client_destroy(client);
+    if (pool) {
+        mongoc_client_pool_destroy(pool);
     }
     mongoc_cleanup();
 }
 
-/**
- * @brief Inserts a document into the specified collection.
- *
- * @param collection_name The name of the collection to insert the document into.
- * @param doc The document to insert.
- * @return bool Returns true on success, false on failure.
- */
+// Inserts a document into the specified collection
 bool db_insert(const char* collection_name, const bson_t* doc) {
     bson_error_t error;
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     bool success = mongoc_collection_insert_one(collection, doc, NULL, NULL, &error);
@@ -50,19 +51,14 @@ bool db_insert(const char* collection_name, const bson_t* doc) {
     }
 
     mongoc_collection_destroy(collection);
+    mongoc_client_pool_push(pool, client);
     return success;
 }
 
-/**
- * @brief Updates a document in the specified collection.
- *
- * @param collection_name The name of the collection to update the document in.
- * @param query The query to find the document to update.
- * @param update The update to apply to the document.
- * @return bool Returns true on success, false on failure.
- */
+// Updates a document in the specified collection
 bool db_update(const char* collection_name, const bson_t* query, const bson_t* update) {
     bson_error_t error;
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     bool success = mongoc_collection_update_one(collection, query, update, NULL, NULL, &error);
@@ -71,19 +67,15 @@ bool db_update(const char* collection_name, const bson_t* query, const bson_t* u
     }
 
     mongoc_collection_destroy(collection);
+    mongoc_client_pool_push(pool, client);
     return success;
 }
 
-/**
- * @brief Deletes a document from the specified collection.
- *
- * @param collection_name The name of the collection to delete the document from.
- * @param query The query to find the document to delete.
- * @return bool Returns true on success, false on failure.
- */
+// Deletes a document from the specified collection
 bool db_delete(const char* collection_name, const bson_t* query) {
     bson_error_t error;
     bson_t reply;
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     bool success = mongoc_collection_delete_one(collection, query, NULL, &reply, &error);
@@ -93,19 +85,14 @@ bool db_delete(const char* collection_name, const bson_t* query) {
 
     bson_destroy(&reply);
     mongoc_collection_destroy(collection);
+    mongoc_client_pool_push(pool, client);
     return success;
 }
 
-/**
- * @brief Finds a single document in the specified collection that matches the query.
- *
- * @param collection_name The name of the collection to search.
- * @param query The query to find the document.
- * @return bson_t* A BSON document containing the result.
- *         The caller is responsible for freeing the returned document.
- */
+// Finds a single document matching the query
 bson_t* db_find_one(const char* collection_name, const bson_t* query) {
     bson_t* result = NULL;
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
     mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
@@ -116,20 +103,15 @@ bson_t* db_find_one(const char* collection_name, const bson_t* query) {
 
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(collection);
+    mongoc_client_pool_push(pool, client);
     return result;
 }
 
-/**
- * @brief Finds documents in the specified collection that match the query.
- *
- * @param collection_name The name of the collection to search.
- * @param query The query to find the documents.
- * @return bson_t* A BSON array document containing the results.
- *         The caller is responsible for freeing the returned document.
- */
+// Finds all documents matching the query
 bson_t* db_find(const char* collection_name, const bson_t* query) {
     bson_t* result = bson_new();
     bson_t child;
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
     mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
@@ -151,5 +133,6 @@ bson_t* db_find(const char* collection_name, const bson_t* query) {
 
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(collection);
+    mongoc_client_pool_push(pool, client);
     return result;
 }
