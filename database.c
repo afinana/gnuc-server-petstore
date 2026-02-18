@@ -2,68 +2,11 @@
 #include <hiredis/hiredis.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <cjson/cJSON.h>
+#include "database.h"
+#include "log-utils.h"
 
-#include "database.h" // Include the database header
-#include "log-utils.h" // Include the log utils header
-
-redisContext* redis_context = NULL;
-
-#define REDIS_TIMEOUT 5
-
-/**
- * @brief Helper function to free redisReply and log error
- *
- * @param reply The redisReply object to be freed
- * @param errorMsg The error message to be logged
- */
-void freeReplyAndLogError(redisReply* reply, const char* errorMsg) {
-    if (reply) {
-        freeReplyObject(reply);
-    }
-    LOG_ERROR("%s", errorMsg);
-}
-
-/**
- * @brief Parse the Redis URI to extract host, port, and password
- *
- * @param redisURI The Redis URI string
- * @param host The extracted host
- * @param port The extracted port
- * @param password The extracted password
- */
-void parseRedisURI(const char* redisURI, char* host, int* port, char* password) {
-    char temp[256];
-    strcpy(temp, redisURI);
-
-    char* uri = temp + strlen("redis://");
-    char* atSign = strchr(uri, '@');
-    if (atSign) {
-        *atSign = '\0';
-        char* passwordStart = strchr(uri, ':');
-        if (passwordStart) {
-            strcpy(password, passwordStart + 1);
-        }
-        else {
-            password[0] = '\0';
-        }
-        strcpy(host, atSign + 1);
-    }
-    else {
-        strcpy(host, uri);
-        password[0] = '\0';
-    }
-
-    char* colon = strrchr(host, ':');
-    if (colon) {
-        *colon = '\0';
-        *port = atoi(colon + 1);
-    }
-    else {
-        *port = 6379;
-    }
-}
+// Single client; collection is always a local variable for thread safety
+static mongoc_client_t* client = NULL;
 
 /**
  * @brief Initialize the database connection
@@ -119,20 +62,17 @@ void db_cleanup() {
  * @param op_num The number of operations to process
  * @return true on success, false on failure
  */
-bool processRedisReplies(int op_num) {
-    redisReply* reply = NULL;
-    for (int i = 0; i < op_num; i++) {
-        int resultCode = redisGetReply(redis_context, (void**)&reply);
-        if (resultCode == REDIS_OK) {
-            LOG_INFO("Response [%d]: %s", i, reply->str ? reply->str : "(nil)");
-            freeReplyObject(reply);
-        }
-        else {
-            freeReplyAndLogError(reply, "Error processing redis reply");
-            return false;
-        }
+bool db_insert(const char* collection_name, const bson_t* doc) {
+    bson_error_t error;
+    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
+
+    bool success = mongoc_collection_insert_one(collection, doc, NULL, NULL, &error);
+    if (!success) {
+        LOG_ERROR("Insert failed: %s", error.message);
     }
-    return true;
+
+    mongoc_collection_destroy(collection);
+    return success;
 }
 
 /**
@@ -194,26 +134,17 @@ bool db_pet_insert(const char* collection_name, const cJSON* doc) {
  * @param update The JSON document to update
  * @return true on success, false on failure
  */
-bool db_pet_update(const char* collection_name, const cJSON* update) {
-    cJSON* id_obj = cJSON_GetObjectItem(update, "id");
-    if (id_obj == NULL) {
-        LOG_ERROR("Update document does not contain an id");
-        return false;
-    }
-    char id[20];
-	//convert int to string
-	sprintf(id, "%d", id_obj->valueint);
+bool db_update(const char* collection_name, const bson_t* query, const bson_t* update) {
+    bson_error_t error;
+    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
-    if (!db_pet_delete(collection_name, id)) {
-        LOG_ERROR("Failed to delete document before updating");
-        return false;
+    bool success = mongoc_collection_update_one(collection, query, update, NULL, NULL, &error);
+    if (!success) {
+        LOG_ERROR("Update failed: %s", error.message);
     }
 
-    if (!db_pet_insert(collection_name, update)) {
-        LOG_ERROR("Failed to insert updated document");
-        return false;
-    }
-    return true;
+    mongoc_collection_destroy(collection);
+    return success;
 }
 
 /**
@@ -281,61 +212,37 @@ bool db_user_insert(const char* collection_name, const cJSON* doc) {
  * @param update The JSON document to update
  * @return true on success, false on failure
  */
-bool db_user_update(const char* collection_name, const cJSON* update) {
-    cJSON* id_obj = cJSON_GetObjectItem(update, "id");
-    if (id_obj == NULL) {
-        LOG_ERROR("Update document does not contain an id");
-        return false;
+bool db_delete(const char* collection_name, const bson_t* query) {
+    bson_error_t error;
+    bson_t reply;
+    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
+
+    bool success = mongoc_collection_delete_one(collection, query, NULL, &reply, &error);
+    if (!success) {
+        LOG_ERROR("Delete failed: %s", error.message);
     }
 
-    char id[20];
-    // Convert int to string
-    sprintf(id, "%d", id_obj->valueint);
-
-    if (!db_user_delete(collection_name, id)) {
-        LOG_ERROR("Failed to delete document before updating");
-        return false;
-    }
-
-    if (!db_user_insert(collection_name, update)) {
-        LOG_ERROR("Failed to insert updated document");
-        return false;
-    }
-    return true;
+    bson_destroy(&reply);
+    mongoc_collection_destroy(collection);
+    return success;
 }
 
 /**
- * @brief Delete a user document from the database
+ * @brief Finds a single document in the specified collection that matches the query.
  *
- * @param collection_name The name of the collection
- * @param id The id of the document to delete
- * @return true on success, false on failure
+ * @param collection_name The name of the collection to search.
+ * @param query The query to find the document.
+ * @return bson_t* A BSON document containing the result.
+ *         The caller is responsible for freeing the returned document.
  */
-bool db_user_delete(const char* collection_name, const char* id) {
-    int op_num = 0;
-    cJSON* doc = db_find_one(collection_name, id);
-    if (doc == NULL) {
-        LOG_ERROR("Document not found");
-        return false;
-    }
+bson_t* db_find_one(const char* collection_name, const bson_t* query) {
+    bson_t* result = NULL;
+    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
+    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
-    cJSON* id_obj = cJSON_GetObjectItem(doc, "id");
-    if (id_obj == NULL) {
-        LOG_ERROR("Document does not contain an id");
-        return false;
-    }
-    int doc_id = id_obj->valueint;
-    cJSON* field_obj = cJSON_GetObjectItem(doc, "username");
-
-    char* field_id = malloc(strlen(collection_name) + 20);
-    if (field_id == NULL) {
-        LOG_ERROR("Memory allocation failed for key");
-        return false;
-    }
-    sprintf(field_id, "%s:%s", collection_name, "username");
-    if (!remove_document_from_field(field_id, field_obj, doc_id, &op_num)) {
-        free(field_id);
-        return false;
+    const bson_t* doc;
+    if (mongoc_cursor_next(cursor, &doc)) {
+        result = bson_copy(doc);
     }
 
     if (!remove_document_from_collection(collection_name, doc_id, &op_num)) {
@@ -351,37 +258,21 @@ bool db_user_delete(const char* collection_name, const char* id) {
 /**
  * @brief Delete a pet document from the database
  *
- * @param collection_name The name of the collection
- * @param id The id of the document to delete
- * @return true on success, false on failure
+ * @param collection_name The name of the collection to search.
+ * @param query The query to find the documents.
+ * @return bson_t* A BSON array document containing the results.
+ *         The caller is responsible for freeing the returned document.
  */
-bool db_pet_delete(const char* collection_name, const char* id) {
-    int op_num = 0;
-    cJSON* doc = db_find_one(collection_name, id);
-    if (doc == NULL) {
-        LOG_ERROR("Document not found");
-        return false;
-    }
+bson_t* db_find(const char* collection_name, const bson_t* query) {
+    bson_t* result = bson_new();
+    bson_t child;
+    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
+    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
-    cJSON* id_obj = cJSON_GetObjectItem(doc, "id");
-    if (id_obj == NULL) {
-        LOG_ERROR("Document does not contain an id");
-        return false;
-    }
-    int doc_id = id_obj->valueint;
-    cJSON* status_obj = cJSON_GetObjectItem(doc, "status");
-
-    if (!remove_document_from_field(collection_name, status_obj, doc_id, &op_num)) {
-        return false;
-    }
-
-    if (!remove_document_from_tags(collection_name, doc, doc_id, &op_num)) {
-        return false;
-    }
-
-    if (!remove_document_from_collection(collection_name, doc_id, &op_num)) {
-        return false;
-    }
+    BSON_APPEND_ARRAY_BEGIN(result, "collection", &child);
+    int index = 0;
+    char key[16];
+    const bson_t* doc;
 
     return processRedisReplies(op_num);
 }
