@@ -112,15 +112,39 @@ int handle_delete_pet(const char* id) {
  * @return char* A JSON string containing the list of pets that match the tags: "tag01,tag02".
  *         The caller is responsible for freeing the returned string.
  */
-char* handle_get_pet_by_tags(const char* tags) {
+char* find_pets_by_tags(const char* tags) {
+    if (tags == NULL || tags[0] == '\0') {
+        LOG_ERROR("No tags provided");
+        return strdup("[]");
+    }
     LOG_INFO("find pets with the given tags: %s", tags);
+    char* tags_copy = strdup(tags);
+    if (tags_copy == NULL) {
+        LOG_ERROR("Memory allocation failed");
+        return NULL;
+    }
+    bson_t* query = bson_new();
+
+    // get all tags splits by in threadsafe mode
+    char* saveToken;
+    char* token = strtok_r(tags_copy, ",", &saveToken);
 
     cJSON* query = create_query("pets:tags", "eq", tags);
     if (!query) return strdup("[]");
 
-    cJSON* result = db_find("pets", query);
-    char* json = result ? cJSON_PrintUnformatted(result) : strdup("[]");
-    if (!result) {
+    char* query_json = bson_as_json(query, NULL);
+    LOG_INFO("find_pets_by_tags Query : %s", query_json);
+    bson_free(query_json);
+
+    // Execute Mongo query
+    bson_t* result = db_find("pets", query);
+    char* json = NULL;
+    if (result) {
+        json = bson_as_relaxed_extended_json(result, NULL);
+        //LOG_INFO("Pets found: %s", json);
+        bson_destroy(result);
+    }
+    else {
         LOG_ERROR("No pets found with the given tags");
     }
 
@@ -136,17 +160,47 @@ char* handle_get_pet_by_tags(const char* tags) {
  * @return char* A JSON string containing the list of pets that match the list of status: "available,sold".
  *         The caller is responsible for freeing the returned string.
  */
-char* handle_get_pet_by_state(const char* statuses) {
+char* find_pets_by_state(const char* statuses) {
+    if (statuses == NULL || statuses[0] == '\0') {
+        LOG_ERROR("No statuses provided");
+        return strdup("[]");
+    }
     LOG_INFO("find_pets_by_state with the given statuses: %s", statuses);
 
-    cJSON* query = create_query("pets:status", "eq", statuses);
-    if (!query) return strdup("[]");
+    char* statuses_copy = strdup(statuses);
+    if (statuses_copy == NULL) {
+        LOG_ERROR("Memory allocation failed");
+        return NULL;
+    }
+
+    // Initialize BSON query
+    bson_t* query = bson_new();
+    bson_t* status_array = bson_new();
+    bson_t child;
+
+    // Split the statuses string by comma using strtok_r
+    // build query : db.pets.find({status: { $in: ["available", "sold"]}})
+    char* saveptr;
+    char* status = strtok_r(statuses_copy, ",", &saveptr);
+
+    BSON_APPEND_ARRAY_BEGIN(status_array, "$in", &child);
+    int index = 0;
+    char key[16];
 
     LOG_INFO("handle_get_pet_by_state query: %s", cJSON_PrintUnformatted(query));
 
-    cJSON* result = db_find("pets", query);
-    char* json = result ? cJSON_PrintUnformatted(result) : strdup("[]");
-    if (!result) {
+    char* query_json = bson_as_json(query, NULL);
+    LOG_INFO("find_pets_by_state Query: %s", query_json);
+    bson_free(query_json);
+    // Execute query
+    bson_t* result = db_find("pets", query);
+    char* json = NULL;
+    if (result) {
+        json = bson_as_relaxed_extended_json(result, NULL);
+        // LOG_INFO("Pets found: %s", json);
+        bson_destroy(result);
+    }
+    else {
         LOG_ERROR("No pets found in the given state");
     }
 
@@ -308,10 +362,22 @@ int handle_post_user_login(const char* json_payload) {
         return EXIT_FAILURE;
     }
 
-    // Check if the username and password match
-    int result = (strcmp(username_item->valuestring, "admin") == 0 && strcmp(password_item->valuestring, "admin") == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
-    if (result == EXIT_FAILURE) {
-        LOG_ERROR("Invalid username or password");
+    // Extract and validate username and password fields
+    bson_iter_t iter;
+    const char* username = NULL;
+    const char* password = NULL;
+
+    if (bson_iter_init_find(&iter, &doc, "username") && BSON_ITER_HOLDS_UTF8(&iter)) {
+        username = bson_iter_utf8(&iter, NULL);
+    }
+    if (bson_iter_init_find(&iter, &doc, "password") && BSON_ITER_HOLDS_UTF8(&iter)) {
+        password = bson_iter_utf8(&iter, NULL);
+    }
+
+    if (username && password &&
+        strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {
+        bson_destroy(&doc);
+        return EXIT_SUCCESS;
     }
 
     cJSON_Delete(doc);
