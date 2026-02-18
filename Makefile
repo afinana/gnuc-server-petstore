@@ -1,8 +1,8 @@
 CC = cc
-CFLAGS_PRO = -Wall  -Wextra -g -O2 -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
-CFLAGS = -Wall  -Wextra -g -O0 -DDEBUG -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
+CFLAGS = -Wall -Wextra -g -O2 -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
+CFLAGS_DEBUG = -Wall -Wextra -g -O0 -DDEBUG -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0
 LDFLAGS = -lmongoc-1.0 -lbson-1.0 -lmicrohttpd
-SRC = main.c handlers.c database.c 
+SRC = main.c handlers.c database.c
 OBJ = $(SRC:.c=.o)
 TARGET = petstore-api
 
@@ -14,13 +14,13 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS)
 
+debug: CFLAGS = $(CFLAGS_DEBUG)
+debug: clean $(TARGET)
+
 clean:
 	rm -f $(OBJ) $(TARGET)
 
 run: all
 	./$(TARGET)
 
-.PHONY: all clean run
-
-
- 
+.PHONY: all debug clean run

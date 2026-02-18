@@ -113,9 +113,12 @@ int delete_pet_by_id(const char* id) {
  *         The caller is responsible for freeing the returned string.
  */
 char* find_pets_by_tags(const char* tags) {
+    if (tags == NULL || tags[0] == '\0') {
+        LOG_ERROR("No tags provided");
+        return strdup("[]");
+    }
     LOG_INFO("find pets with the given tags: %s", tags);
-    // Split the tags string by comma
-    char* tags_copy = strdup(tags); // Duplicate the string for manipulation
+    char* tags_copy = strdup(tags);
     if (tags_copy == NULL) {
         LOG_ERROR("Memory allocation failed");
         return NULL;
@@ -142,7 +145,9 @@ char* find_pets_by_tags(const char* tags) {
         token = strtok_r(NULL, ",", &saveToken);
     }
 
-    LOG_INFO("find_pets_by_tags Query : %s", bson_as_json(query, NULL));
+    char* query_json = bson_as_json(query, NULL);
+    LOG_INFO("find_pets_by_tags Query : %s", query_json);
+    bson_free(query_json);
 
     // Execute Mongo query
     bson_t* result = db_find("pets", query);
@@ -170,9 +175,12 @@ char* find_pets_by_tags(const char* tags) {
  *         The caller is responsible for freeing the returned string.
  */
 char* find_pets_by_state(const char* statuses) {
+    if (statuses == NULL || statuses[0] == '\0') {
+        LOG_ERROR("No statuses provided");
+        return strdup("[]");
+    }
     LOG_INFO("find_pets_by_state with the given statuses: %s", statuses);
 
-    // Duplicate the string for manipulation
     char* statuses_copy = strdup(statuses);
     if (statuses_copy == NULL) {
         LOG_ERROR("Memory allocation failed");
@@ -202,7 +210,9 @@ char* find_pets_by_state(const char* statuses) {
 
     BSON_APPEND_DOCUMENT(query, "status", status_array);
 
-    LOG_INFO("find_pets_by_state Query: %s", bson_as_json(query, NULL));
+    char* query_json = bson_as_json(query, NULL);
+    LOG_INFO("find_pets_by_state Query: %s", query_json);
+    bson_free(query_json);
     // Execute query
     bson_t* result = db_find("pets", query);
     char* json = NULL;
@@ -413,18 +423,22 @@ int handle_post_user_login(const char* json_payload) {
         return EXIT_FAILURE;
     }
 
-    // Check if the username and password fields are strings
+    // Extract and validate username and password fields
     bson_iter_t iter;
-    if (bson_iter_init_find(&iter, &doc, "username") && BSON_ITER_HOLDS_UTF8(&iter) &&
-        bson_iter_init_find(&iter, &doc, "password") && BSON_ITER_HOLDS_UTF8(&iter)) {
-        // Check if the username and password match
-        const char* username = bson_iter_utf8(&iter, NULL);
-        bson_iter_init_find(&iter, &doc, "password");
-        const char* password = bson_iter_utf8(&iter, NULL);
-        if (strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {
-            bson_destroy(&doc);
-            return EXIT_SUCCESS;
-        }
+    const char* username = NULL;
+    const char* password = NULL;
+
+    if (bson_iter_init_find(&iter, &doc, "username") && BSON_ITER_HOLDS_UTF8(&iter)) {
+        username = bson_iter_utf8(&iter, NULL);
+    }
+    if (bson_iter_init_find(&iter, &doc, "password") && BSON_ITER_HOLDS_UTF8(&iter)) {
+        password = bson_iter_utf8(&iter, NULL);
+    }
+
+    if (username && password &&
+        strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {
+        bson_destroy(&doc);
+        return EXIT_SUCCESS;
     }
     LOG_ERROR("Invalid username or password");
     bson_destroy(&doc);
