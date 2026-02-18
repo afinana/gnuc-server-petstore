@@ -1,5 +1,5 @@
 # Stage 1: Builder — use same Debian version as runtime
-FROM debian:bookworm-slim AS builder
+FROM debian:bookworm AS builder
 
 WORKDIR /build
 

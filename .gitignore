@@ -2,3 +2,4 @@
 /obj
 /gnuc-server-petstore.vcxproj.user
 petstore-api
+*.o

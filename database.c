@@ -6,44 +6,29 @@
 #include "database.h"
 #include "log-utils.h"
 
-// Connection pool for thread-safe concurrent access
-static mongoc_client_pool_t* pool = NULL;
-static mongoc_uri_t* mongo_uri = NULL;
+// Single client; collection is always a local variable for thread safety
+static mongoc_client_t* client = NULL;
 
 /**
- * @brief Initializes the database connection pool.
+ * @brief Initializes the database connection.
  *
  * @param uri The URI of the database to connect to.
  */
 void db_init(const char* uri) {
     mongoc_init();
-
-    bson_error_t error;
-    mongo_uri = mongoc_uri_new_with_error(uri, &error);
-    if (!mongo_uri) {
-        LOG_ERROR("Failed to parse MongoDB URI: %s", error.message);
+    client = mongoc_client_new(uri);
+    if (!client) {
+        LOG_ERROR("Failed to initialize MongoDB client");
         exit(EXIT_FAILURE);
     }
-
-    pool = mongoc_client_pool_new(mongo_uri);
-    if (!pool) {
-        LOG_ERROR("Failed to create MongoDB connection pool");
-        mongoc_uri_destroy(mongo_uri);
-        exit(EXIT_FAILURE);
-    }
-
-    mongoc_client_pool_max_size(pool, 10);
 }
 
 /**
- * @brief Cleans up the database connection pool.
+ * @brief Cleans up the database connection.
  */
 void db_cleanup() {
-    if (pool) {
-        mongoc_client_pool_destroy(pool);
-    }
-    if (mongo_uri) {
-        mongoc_uri_destroy(mongo_uri);
+    if (client) {
+        mongoc_client_destroy(client);
     }
     mongoc_cleanup();
 }
@@ -57,7 +42,6 @@ void db_cleanup() {
  */
 bool db_insert(const char* collection_name, const bson_t* doc) {
     bson_error_t error;
-    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     bool success = mongoc_collection_insert_one(collection, doc, NULL, NULL, &error);
@@ -66,7 +50,6 @@ bool db_insert(const char* collection_name, const bson_t* doc) {
     }
 
     mongoc_collection_destroy(collection);
-    mongoc_client_pool_push(pool, client);
     return success;
 }
 
@@ -80,7 +63,6 @@ bool db_insert(const char* collection_name, const bson_t* doc) {
  */
 bool db_update(const char* collection_name, const bson_t* query, const bson_t* update) {
     bson_error_t error;
-    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     bool success = mongoc_collection_update_one(collection, query, update, NULL, NULL, &error);
@@ -89,7 +71,6 @@ bool db_update(const char* collection_name, const bson_t* query, const bson_t* u
     }
 
     mongoc_collection_destroy(collection);
-    mongoc_client_pool_push(pool, client);
     return success;
 }
 
@@ -103,7 +84,6 @@ bool db_update(const char* collection_name, const bson_t* query, const bson_t* u
 bool db_delete(const char* collection_name, const bson_t* query) {
     bson_error_t error;
     bson_t reply;
-    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
     bool success = mongoc_collection_delete_one(collection, query, NULL, &reply, &error);
@@ -113,7 +93,6 @@ bool db_delete(const char* collection_name, const bson_t* query) {
 
     bson_destroy(&reply);
     mongoc_collection_destroy(collection);
-    mongoc_client_pool_push(pool, client);
     return success;
 }
 
@@ -127,7 +106,6 @@ bool db_delete(const char* collection_name, const bson_t* query) {
  */
 bson_t* db_find_one(const char* collection_name, const bson_t* query) {
     bson_t* result = NULL;
-    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
     mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
@@ -138,7 +116,6 @@ bson_t* db_find_one(const char* collection_name, const bson_t* query) {
 
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(collection);
-    mongoc_client_pool_push(pool, client);
     return result;
 }
 
@@ -153,7 +130,6 @@ bson_t* db_find_one(const char* collection_name, const bson_t* query) {
 bson_t* db_find(const char* collection_name, const bson_t* query) {
     bson_t* result = bson_new();
     bson_t child;
-    mongoc_client_t* client = mongoc_client_pool_pop(pool);
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
     mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
@@ -175,6 +151,5 @@ bson_t* db_find(const char* collection_name, const bson_t* query) {
 
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(collection);
-    mongoc_client_pool_push(pool, client);
     return result;
 }
