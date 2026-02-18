@@ -1,3 +1,9 @@
+#include <sys/types.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <netinet/in.h> // Include this header for sockaddr_in, htonl, and htons
+#include <arpa/inet.h>  // Include this header for inet_addr
+
 #include <microhttpd.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +23,8 @@ volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
+        // add a LOG_ERROR message
+        LOG_ERROR("Termination signal (%d) received, shutting down...", signal);
         keep_running = 0;
     }
 }
@@ -318,6 +326,16 @@ static void request_completed(void* cls, struct MHD_Connection* connection,
  */
 int main() {
     struct MHD_Daemon* daemon;
+    struct sockaddr_in loopback_addr;
+    char ipAddr[INET_ADDRSTRLEN];
+    int listen_port = 0;
+
+    // Read the server address from the environment variable
+    const char* server_addr = getenv("serverAddr");
+    if (server_addr == NULL) {
+        // Use default address and port if not provided
+        server_addr = "0.0.0.0:8080";
+    }
 
     const char* env_port = getenv("port");
     int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
@@ -364,3 +382,4 @@ int main() {
 
     return 0;
 }
+
