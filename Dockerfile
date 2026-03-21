@@ -1,4 +1,4 @@
-# Stage 1: Builder — use same Debian version as runtime
+# Stage 1: Builder
 FROM debian:bookworm AS builder
 
 WORKDIR /build
@@ -8,18 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
     make \
+    pkg-config \
     libmicrohttpd-dev \
-    libhiredis-dev \
-    libcjson-dev \
+    libmongoc-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source files
-COPY *.c *.h ./
+COPY *.c *.h Makefile ./
 
-# Build with optimizations
-RUN gcc -Wall -Wextra -O2 main.c database.c handlers.c -o petstore-api \
-    -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0 \
-    -lmicrohttpd -lbson-1.0 -lmongoc-1.0
+# Build with the project Makefile
+RUN make all
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
@@ -39,7 +37,8 @@ COPY --from=builder /build/petstore-api /app/petstore-api
 WORKDIR /app
 USER petstore
 
-ENV port=8080
+ENV PORT=8080
+ENV MONGO_URI=mongodb://host.docker.internal:27017
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \

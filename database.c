@@ -1,594 +1,217 @@
-#include <stdbool.h>
-#include <hiredis/hiredis.h>
-#include <stdio.h>
-#include <stdlib.h>
+#define _GNU_SOURCE
 #include "database.h"
 #include "log-utils.h"
 
-// Single client; collection is always a local variable for thread safety
-static mongoc_client_t* client = NULL;
+#include <stdlib.h>
+#include <string.h>
+
+/* ---------------------------------------------------------------------------
+ * Internal state
+ * --------------------------------------------------------------------------- */
+
+#define DB_NAME "petstore"
+
+static mongoc_client_pool_t* pool = NULL;
+static mongoc_uri_t*         mongo_uri = NULL;
+
+/* ---------------------------------------------------------------------------
+ * Helpers
+ * --------------------------------------------------------------------------- */
 
 /**
- * @brief Initialize the database connection
- *
- * @param redisURI The Redis URI string
- * @return int EXIT_SUCCESS on success, EXIT_FAILURE on failure
+ * @brief Pops a client from the pool and returns the requested collection.
+ *        The caller MUST return the client with mongoc_client_pool_push().
  */
-int db_init(const char* redisURI) {
-    char host[128] = { 0 };
-    int port = 6379;
-    char password[128] = { 0 };
-    struct timeval timeout = { 1, REDIS_TIMEOUT };
+static mongoc_collection_t* get_collection(const char* name, mongoc_client_t** out_client) {
+    *out_client = mongoc_client_pool_pop(pool);
+    return mongoc_client_get_collection(*out_client, DB_NAME, name);
+}
 
-    parseRedisURI(redisURI, host, &port, password);
+/* ---------------------------------------------------------------------------
+ * Lifecycle
+ * --------------------------------------------------------------------------- */
 
-    redis_context = redisConnectWithTimeout(host, port, timeout);
-    if (redis_context == NULL || redis_context->err) {
-        if (redis_context) {
-            LOG_ERROR("Connection error: %s", redis_context->errstr);
-            redisFree(redis_context);
-        }
-        else {
-            LOG_ERROR("Connection error: can't allocate redis context");
-        }
+int db_init(const char* uri_string) {
+    bson_error_t error;
+
+    mongo_uri = mongoc_uri_new_with_error(uri_string, &error);
+    if (!mongo_uri) {
+        LOG_ERROR("Failed to parse URI '%s': %s", uri_string, error.message);
         return EXIT_FAILURE;
     }
 
-    if (strlen(password) > 0) {
-        redisReply* reply = redisCommand(redis_context, "AUTH %s", password);
-        if (reply->type == REDIS_REPLY_ERROR) {
-            freeReplyAndLogError(reply, "Authentication failed");
-            redisFree(redis_context);
-            return EXIT_FAILURE;
-        }
-        LOG_INFO("Authentication successful\n");
-        freeReplyObject(reply);
+    pool = mongoc_client_pool_new(mongo_uri);
+    if (!pool) {
+        LOG_ERROR("Failed to create client pool");
+        mongoc_uri_destroy(mongo_uri);
+        mongo_uri = NULL;
+        return EXIT_FAILURE;
     }
+
+    mongoc_client_pool_set_appname(pool, "petstore-api");
+
+    /* Verify connectivity with a ping */
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
+    bson_t* ping = BCON_NEW("ping", BCON_INT32(1));
+    bson_t reply;
+    bool ok = mongoc_client_command_simple(client, "admin", ping, NULL, &reply, &error);
+    bson_destroy(&reply);
+    bson_destroy(ping);
+    mongoc_client_pool_push(pool, client);
+
+    if (!ok) {
+        LOG_ERROR("MongoDB ping failed: %s", error.message);
+        mongoc_client_pool_destroy(pool);
+        mongoc_uri_destroy(mongo_uri);
+        pool = NULL;
+        mongo_uri = NULL;
+        return EXIT_FAILURE;
+    }
+
+    LOG_INFO("Connected to MongoDB (%s)", uri_string);
     return EXIT_SUCCESS;
 }
 
-/**
- * @brief Cleanup the database connection
- */
-void db_cleanup() {
-    if (redis_context) {
-        redisFree(redis_context);
+void db_cleanup(void) {
+    if (pool) {
+        mongoc_client_pool_destroy(pool);
+        pool = NULL;
+    }
+    if (mongo_uri) {
+        mongoc_uri_destroy(mongo_uri);
+        mongo_uri = NULL;
     }
 }
 
-/**
- * @brief Helper function to process redis replies
- *
- * @param op_num The number of operations to process
- * @return true on success, false on failure
- */
-bool db_insert(const char* collection_name, const bson_t* doc) {
+/* ---------------------------------------------------------------------------
+ * CRUD operations
+ * --------------------------------------------------------------------------- */
+
+bool db_insert_one(const char* collection_name, const bson_t* doc) {
+    mongoc_client_t* client;
+    mongoc_collection_t* coll = get_collection(collection_name, &client);
     bson_error_t error;
-    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
 
-    bool success = mongoc_collection_insert_one(collection, doc, NULL, NULL, &error);
-    if (!success) {
-        LOG_ERROR("Insert failed: %s", error.message);
+    bool ok = mongoc_collection_insert_one(coll, doc, NULL, NULL, &error);
+    if (!ok) {
+        LOG_ERROR("Insert into '%s' failed: %s", collection_name, error.message);
     }
 
-    mongoc_collection_destroy(collection);
-    return success;
+    mongoc_collection_destroy(coll);
+    mongoc_client_pool_push(pool, client);
+    return ok;
 }
 
-/**
- * @brief Insert a pet document into the database
- *
- * @param collection_name The name of the collection
- * @param doc The JSON document to insert
- * @return true on success, false on failure
- */
-bool db_pet_insert(const char* collection_name, const cJSON* doc) {
-    int op_num = 0;
+bson_t* db_find_one(const char* collection_name, const bson_t* filter) {
+    mongoc_client_t* client;
+    mongoc_collection_t* coll = get_collection(collection_name, &client);
 
-    cJSON* id_obj = cJSON_GetObjectItem(doc, "id");
-    if (id_obj == NULL) {
-        LOG_ERROR("Document does not contain an id");
-        return false;
-    }
-    int id = id_obj->valueint;
+    /* Limit to 1 document */
+    bson_t* opts = BCON_NEW("limit", BCON_INT64(1));
+    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(coll, filter, opts, NULL);
+    bson_destroy(opts);
 
-    cJSON* status_obj = cJSON_GetObjectItem(doc, "status");
-    if (status_obj == NULL) {
-        LOG_ERROR("Document does not contain a status");
-        return false;
-    }
-
-    LOG_INFO("SADD %s:%s:%s %d", collection_name, "status", status_obj->valuestring, id);
-    redisAppendCommand(redis_context, "SADD %s:%s:%s %d", collection_name, "status", status_obj->valuestring, id);
-    op_num++;
-
-    cJSON* tags_obj = cJSON_GetObjectItem(doc, "tags");
-    if (!store_tags(collection_name, tags_obj, id, &op_num)) {
-        return false;
-    }
-
-    char* key = malloc(strlen(collection_name) + 20);
-    if (key == NULL) {
-        LOG_ERROR("Memory allocation failed for key");
-        return false;
-    }
-
-    sprintf(key, "%s:%s", collection_name, collection_name);
-    LOG_INFO("SADD %s %d", key, id_obj->valueint);
-    redisAppendCommand(redis_context, "SADD %s %d", key, id_obj->valueint);
-    op_num++;
-    free(key);
-
-    if (!store_document(collection_name, doc, id)) {
-        return false;
-    }
-    op_num++;
-
-    return processRedisReplies(op_num);
-}
-
-/**
- * @brief Update a pet document in the database
- *
- * @param collection_name The name of the collection
- * @param update The JSON document to update
- * @return true on success, false on failure
- */
-bool db_update(const char* collection_name, const bson_t* query, const bson_t* update) {
-    bson_error_t error;
-    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
-
-    bool success = mongoc_collection_update_one(collection, query, update, NULL, NULL, &error);
-    if (!success) {
-        LOG_ERROR("Update failed: %s", error.message);
-    }
-
-    mongoc_collection_destroy(collection);
-    return success;
-}
-
-/**
- * @brief Insert a user document into the database
- *
- * @param collection_name The name of the collection
- * @param doc The JSON document to insert
- * @return true on success, false on failure
- */
-bool db_user_insert(const char* collection_name, const cJSON* doc) {
-    int op_num = 0;
-
-    cJSON* id_obj = cJSON_GetObjectItem(doc, "id");
-    if (id_obj == NULL) {
-        LOG_ERROR("Document does not contain an id");
-        return false;
-    }
-
-    char* json_str = cJSON_PrintUnformatted(doc);
-    if (json_str == NULL) {
-        LOG_ERROR("Failed to print JSON document");
-        return false;
-    }
-
-    char* key = malloc(strlen(collection_name) + 20);
-    if (key == NULL) {
-        LOG_ERROR("Memory allocation failed for key");
-        free(json_str);
-        return false;
-    }
-    sprintf(key, "%s:%d", collection_name, id_obj->valueint);
-    LOG_INFO("SET %s %s", key, json_str);
-    redisAppendCommand(redis_context, "SET %s %s", key, json_str);
-    op_num++;
-
-    memset(key, 0, strlen(collection_name) + 20);
-    sprintf(key, "%s:%s", collection_name, collection_name);
-    LOG_INFO("SADD %s %d", key, id_obj->valueint);
-    redisAppendCommand(redis_context, "SADD %s %d", key, id_obj->valueint);
-    op_num++;
-
-    cJSON* username_obj = cJSON_GetObjectItem(doc, "username");
-    if (username_obj == NULL) {
-        LOG_ERROR("Document does not contain a username");
-        free(json_str);
-        return false;
-    }
-
-    memset(key, 0, strlen(collection_name) + 20);
-    sprintf(key, "%s:%s:%s", collection_name, "username", username_obj->valuestring);
-    LOG_INFO("SADD %s %d", key, id_obj->valueint);
-    redisAppendCommand(redis_context, "SADD %s %d", key, id_obj->valueint);
-    op_num++;
-
-    free(key);
-    free(json_str);
-
-    return processRedisReplies(op_num);
-}
-
-/**
- * @brief Update a user document in the database
- *
- * @param collection_name The name of the collection
- * @param update The JSON document to update
- * @return true on success, false on failure
- */
-bool db_delete(const char* collection_name, const bson_t* query) {
-    bson_error_t error;
-    bson_t reply;
-    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
-
-    bool success = mongoc_collection_delete_one(collection, query, NULL, &reply, &error);
-    if (!success) {
-        LOG_ERROR("Delete failed: %s", error.message);
-    }
-
-    bson_destroy(&reply);
-    mongoc_collection_destroy(collection);
-    return success;
-}
-
-/**
- * @brief Finds a single document in the specified collection that matches the query.
- *
- * @param collection_name The name of the collection to search.
- * @param query The query to find the document.
- * @return bson_t* A BSON document containing the result.
- *         The caller is responsible for freeing the returned document.
- */
-bson_t* db_find_one(const char* collection_name, const bson_t* query) {
     bson_t* result = NULL;
-    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
-    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
-
     const bson_t* doc;
     if (mongoc_cursor_next(cursor, &doc)) {
         result = bson_copy(doc);
     }
 
-    if (!remove_document_from_collection(collection_name, doc_id, &op_num)) {
-        free(field_id);
-        return false;
+    bson_error_t error;
+    if (mongoc_cursor_error(cursor, &error)) {
+        LOG_ERROR("Find in '%s' failed: %s", collection_name, error.message);
     }
 
-    free(field_id);
-
-    return processRedisReplies(op_num);
+    mongoc_cursor_destroy(cursor);
+    mongoc_collection_destroy(coll);
+    mongoc_client_pool_push(pool, client);
+    return result;
 }
 
-/**
- * @brief Delete a pet document from the database
- *
- * @param collection_name The name of the collection to search.
- * @param query The query to find the documents.
- * @return bson_t* A BSON array document containing the results.
- *         The caller is responsible for freeing the returned document.
- */
-bson_t* db_find(const char* collection_name, const bson_t* query) {
-    bson_t* result = bson_new();
-    bson_t child;
-    mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
-    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
+char* db_find_as_json_array(const char* collection_name, const bson_t* filter) {
+    mongoc_client_t* client;
+    mongoc_collection_t* coll = get_collection(collection_name, &client);
 
-    BSON_APPEND_ARRAY_BEGIN(result, "collection", &child);
-    int index = 0;
-    char key[16];
+    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(coll, filter, NULL, NULL);
+
+    size_t cap = 1024;
+    size_t len = 0;
+    char* buf = malloc(cap);
+    if (!buf) {
+        mongoc_cursor_destroy(cursor);
+        mongoc_collection_destroy(coll);
+        mongoc_client_pool_push(pool, client);
+        return strdup("[]");
+    }
+    buf[len++] = '[';
+
     const bson_t* doc;
+    bool first = true;
+    while (mongoc_cursor_next(cursor, &doc)) {
+        size_t jlen;
+        char* j = bson_as_relaxed_extended_json(doc, &jlen);
 
-    return processRedisReplies(op_num);
-}
-
-/**
- * @brief Helper function to store tags in the database
- *
- * @param collection_name The name of the collection
- * @param tags_obj The JSON object containing tags
- * @param id The id of the document
- * @param num_op The number of operations
- * @return true on success, false on failure
- */
-bool store_tags(const char* collection_name, const cJSON* tags_obj, int id, int* num_op) {
-   
-    if (tags_obj != NULL && cJSON_IsArray(tags_obj)) {
-    
-        int array_size = cJSON_GetArraySize(tags_obj);
-        for (int i = 0; i < array_size; i++) {
-            cJSON* tag = cJSON_GetArrayItem(tags_obj, i);
-            cJSON* name_obj = cJSON_GetObjectItem(tag, "name");
-            if (name_obj == NULL) {
-                LOG_ERROR("Category does not contain a name");
-                return false;
+        while (len + jlen + 3 > cap) {
+            cap *= 2;
+            char* tmp = realloc(buf, cap);
+            if (!tmp) { 
+                bson_free(j); 
+                free(buf);
+                mongoc_cursor_destroy(cursor);
+                mongoc_collection_destroy(coll);
+                mongoc_client_pool_push(pool, client);
+                return strdup("[]"); 
             }
-            char* name = cJSON_GetStringValue(name_obj);
-            if (name != NULL) {
-                LOG_INFO("SADD %s:%s:%s %d", collection_name, "tags", name, id);
-                redisAppendCommand(redis_context, "SADD %s:%s:%s %d", collection_name, "tags", name, id);
-                (*num_op)++;
-            }
+            buf = tmp;
         }
+
+        if (!first) buf[len++] = ',';
+        memcpy(buf + len, j, jlen);
+        len += jlen;
+        bson_free(j);
+        first = false;
     }
-    return true;
+
+    bson_error_t error;
+    if (mongoc_cursor_error(cursor, &error)) {
+        LOG_ERROR("Cursor error in '%s': %s", collection_name, error.message);
+    }
+
+    mongoc_cursor_destroy(cursor);
+    mongoc_collection_destroy(coll);
+    mongoc_client_pool_push(pool, client);
+
+    buf[len++] = ']';
+    buf[len] = '\0';
+    return buf;
 }
 
-/**
- * @brief Helper function to remove document from tags in the database
- *
- * @param collection_name The name of the collection
- * @param doc The JSON document
- * @param id The id of the document
- * @param op_number The number of operations
- * @return true on success, false on failure
- */
-bool remove_document_from_tags(const char* collection_name, const cJSON* doc, int id, int* op_number) {
-  
-    cJSON* tags_obj = cJSON_GetObjectItem(doc, "tags");
-    
-    if (tags_obj != NULL && cJSON_IsArray(tags_obj)) {
-        int array_size = cJSON_GetArraySize(tags_obj);
-        for (int i = 0; i < array_size; i++) {
-            cJSON* tag = cJSON_GetArrayItem(tags_obj, i);
-            cJSON* name_obj = cJSON_GetObjectItem(tag, "name");
-            if (name_obj == NULL) {
-                LOG_ERROR("Category does not contain a name");
-                return false;
-            }
-            char* name = cJSON_GetStringValue(name_obj);
-            if (name != NULL) {
-                char* key = malloc(strlen(collection_name) + strlen(name) + 2);
-                if (key == NULL) {
-                    LOG_ERROR("Memory allocation failed for key");
-                    return false;
-                }
-                sprintf(key, "%s:%s", collection_name, name);
-                LOG_INFO("SREM %s %d", key, id);
-                redisAppendCommand(redis_context, "SREM %s %d", key, id);
-                (*op_number)++;
-                free(key);
-            }
-        }
+bool db_update_one(const char* collection_name, const bson_t* filter, const bson_t* update) {
+    mongoc_client_t* client;
+    mongoc_collection_t* coll = get_collection(collection_name, &client);
+    bson_error_t error;
+
+    bool ok = mongoc_collection_update_one(coll, filter, update, NULL, NULL, &error);
+    if (!ok) {
+        LOG_ERROR("Update in '%s' failed: %s", collection_name, error.message);
     }
-    return true;
+
+    mongoc_collection_destroy(coll);
+    mongoc_client_pool_push(pool, client);
+    return ok;
 }
 
-/**
- * @brief Find a single document in the database
- *
- * @param collection_name The name of the collection
- * @param id The id of the document to find
- * @return cJSON* The JSON document found, or NULL on failure
- */
-cJSON* db_find_one(const char* collection_name, const char* id) {
-    cJSON* result = NULL;
-    redisReply* reply = NULL;
+bool db_delete_one(const char* collection_name, const bson_t* filter) {
+    mongoc_client_t* client;
+    mongoc_collection_t* coll = get_collection(collection_name, &client);
+    bson_error_t error;
 
-    LOG_INFO("GET %s:%s", collection_name, id);
-    redisAppendCommand(redis_context, "GET %s:%s", collection_name, id);
-
-    if (redisGetReply(redis_context, (void**)&reply) == REDIS_OK) {
-        if (reply == NULL || reply->type != REDIS_REPLY_STRING) {
-            freeReplyAndLogError(reply, "Failed to retrieve response");
-            return NULL;
-        }
-        char* json = strdup(reply->str);
-        result = cJSON_Parse(json);
-        freeReplyObject(reply);
-        free(json);
-        if (result == NULL) {
-            LOG_ERROR("Failed to parse JSON");
-            return NULL;
-        }
-    }
-    else {
-        LOG_ERROR("Failed to retrieve response");
-    }
-    return result;
-}
-/**
- * @brief Find documents in the database based on a query
- *
- * @param collection_name The name of the collection
- * @param query The JSON query object
- * @return cJSON* The JSON array of documents found, or NULL on failure
- */
-cJSON* db_find(const char* collection_name, const cJSON* query) {
-    int op_num = 0;
-    int op_getid_num = 0;
-
-    LOG_INFO("db_find query: %s", cJSON_PrintUnformatted(query));
-
-    cJSON* operator_obj = cJSON_GetObjectItem(query, "operator");
-    if (operator_obj == NULL) {
-        LOG_ERROR("Query does not contain an operator");
-        return NULL;
-    }
-    cJSON* field_obj = cJSON_GetObjectItem(query, "field");
-    if (field_obj == NULL) {
-        LOG_ERROR("Query does not contain a field");
-        return NULL;
+    bool ok = mongoc_collection_delete_one(coll, filter, NULL, NULL, &error);
+    if (!ok) {
+        LOG_ERROR("Delete from '%s' failed: %s", collection_name, error.message);
     }
 
-    cJSON* value_obj = cJSON_GetObjectItem(query, "value");
-    if (value_obj == NULL) {
-        LOG_ERROR("Query does not contain a value");
-        return NULL;
-    }
-    if (!cJSON_IsArray(value_obj)) {
-        LOG_ERROR("Value is not an array");
-        return NULL;
-    }
-
-    int array_size = cJSON_GetArraySize(value_obj);
-    for (int i = 0; i < array_size; i++) {
-        cJSON* value = cJSON_GetArrayItem(value_obj, i);
-        if (value == NULL) {
-            LOG_ERROR("Value is not a string");
-            return NULL;
-        }
-        LOG_INFO("SMEMBERS %s:%s", field_obj->valuestring, value->valuestring);
-        redisAppendCommand(redis_context, "SMEMBERS %s:%s", field_obj->valuestring, value->valuestring);
-        op_num++;
-    }
-
-    redisReply* reply = NULL;
-    for (int i = 0; i < op_num; i++) {
-        int resultCode = redisGetReply(redis_context, (void**)&reply);
-        if (resultCode == REDIS_OK) {
-            for (size_t j = 0; j < reply->elements; j++) {
-                char* set_id = reply->element[j]->str;
-                LOG_INFO("GET %s:%s", collection_name, set_id);
-                redisAppendCommand(redis_context, "GET %s:%s", collection_name, set_id);
-                op_getid_num++;
-            }
-            freeReplyObject(reply);
-        }
-        else {
-            freeReplyAndLogError(reply, "Error processing redis reply");
-            return NULL;
-        }
-    }
-
-    reply = NULL;
-    cJSON* result = cJSON_CreateArray();
-    for (int i = 0; i < op_getid_num; i++) {
-        int resultCode = redisGetReply(redis_context, (void**)&reply);
-        if (resultCode == REDIS_OK) {
-            
-            if (reply->type == REDIS_REPLY_STRING) {
-                char* json = strdup(reply->str);
-                cJSON* doc = cJSON_Parse(json);
-                free(json);
-                if (doc != NULL) {
-                    cJSON_AddItemToArray(result, doc);
-                }
-            }
-            freeReplyObject(reply);
-        }
-        else {
-            freeReplyAndLogError(reply, "Error processing redis reply");
-            return NULL;
-        }
-    }
-    return result;
-}
-
-/**
- * @brief Find all documents in a collection
- *
- * @param collection_name The name of the collection
- * @return cJSON* The JSON array of documents found, or NULL on failure
- */
-cJSON* db_find_all(const char* collection_name) {
-
-	// Get all the document IDs from the collection
-    LOG_INFO("SMEMBERS %s:%s", collection_name, collection_name);
-    redisAppendCommand(redis_context, "SMEMBERS %s:%s", collection_name, collection_name);
-    redisReply* reply = NULL;
-   
-	// Get the document for each ID
-	int op_getid_num = 0;
-    int resultCode = redisGetReply(redis_context, (void**)&reply);
-    if (resultCode == REDIS_OK) {
-        for (size_t j = 0; j < reply->elements; j++) {
-            char* set_id = reply->element[j]->str;
-            LOG_INFO("GET %s:%s", collection_name, set_id);
-            redisAppendCommand(redis_context, "GET %s:%s", collection_name, set_id);
-            op_getid_num++;
-        }
-        freeReplyObject(reply);
-    }
-    else {
-        freeReplyAndLogError(reply, "Error processing redis reply");
-        return NULL;
-    }   
-    
-    reply = NULL;
-    cJSON* result = cJSON_CreateArray();
-	
-    // Get the document for each ID
-    for (int i = 0; i < op_getid_num; i++) {
-        int resultCode = redisGetReply(redis_context, (void**)&reply);
-        if (resultCode == REDIS_OK) {
-            
-            LOG_INFO("Response [%d]: %s", i, reply->str ? reply->str : "(nil)");
-            if (reply->type == REDIS_REPLY_STRING) {
-                char* json = strdup(reply->str);
-                cJSON* doc = cJSON_Parse(json);
-                free(json);
-                if (doc != NULL) {
-                    cJSON_AddItemToArray(result, doc);
-                }
-            }
-            freeReplyObject(reply);
-        }
-        else {
-            freeReplyAndLogError(reply, "Error processing redis reply");
-            return NULL;
-        }
-    }
-    return result;    
-   
-}
-
-/**
- * @brief Helper function to remove a document from a field in the database
- *
- * @param field_id The field identifier
- * @param field_name The field name
- * @param id The id of the document
- * @param op_num The number of operations
- * @return true on success, false on failure
- */
-bool remove_document_from_field(const char* field_id, const cJSON* field_name, int id, int* op_num) {
-    if (field_name != NULL) {
-        LOG_INFO("SREM %s:%s %d", field_id, field_name->valuestring, id);
-        redisAppendCommand(redis_context, "SREM %s:%s %d", field_id, field_name->valuestring, id);
-        (*op_num)++;
-    }
-    return true;
-}
-
-/**
- * @brief Helper function to remove a document from a collection in the database
- *
- * @param collection_name The name of the collection
- * @param id The id of the document
- * @param op_num The number of operations
- * @return true on success, false on failure
- */
-bool remove_document_from_collection(const char* collection_name, int id, int* op_num) {
-    LOG_INFO("SREM %s %d", collection_name, id);
-    redisAppendCommand(redis_context, "SREM %s %d", collection_name, id);
-    (*op_num)++;
-    return true;
-}
-
-/**
- * @brief Helper function to store a document in the database
- *
- * @param collection_name The name of the collection
- * @param doc The JSON document to store
- * @param id The id of the document
- * @return true on success, false on failure
- */
-bool store_document(const char* collection_name, const cJSON* doc, int id) {
-    char* json_str = cJSON_PrintUnformatted(doc);
-
-    if (json_str == NULL) {
-        LOG_ERROR("Failed to print JSON document");
-        return false;
-    }
-
-    char* key = malloc(strlen(collection_name) + 20);
-    if (key == NULL) {
-        LOG_ERROR("Memory allocation failed for key");
-        free(json_str);
-        return false;
-    }
-    sprintf(key, "%s:%d", collection_name, id);
-
-    LOG_INFO("SET %s %s", key, json_str);
-    redisAppendCommand(redis_context, "SET %s %s", key, json_str);
-
-    free(key);
-    free(json_str);
-    return true;
+    mongoc_collection_destroy(coll);
+    mongoc_client_pool_push(pool, client);
+    return ok;
 }
