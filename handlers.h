@@ -1,123 +1,97 @@
 #ifndef HANDLERS_H
 #define HANDLERS_H
 
-/**
- * @brief Creates a new pet from the given JSON payload.
- *
- * @param json_payload The JSON payload containing the pet details.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_create_pet(const char* json_payload);
+/* ---------------------------------------------------------------------------
+ * Pet handlers
+ * --------------------------------------------------------------------------- */
 
 /**
- * @brief Updates an existing pet with the given JSON payload.
- *
- * @param json_payload The JSON payload containing the updated pet details.
- * @return int Returns 0 on success, non-zero on failure.
+ * @brief Creates a new pet (POST /v2/pet).
+ * @param json_payload  Raw JSON body from the request.
+ * @return 0 on success, non-zero on failure.
  */
-int handle_update_pet(const char* json_payload);
+int create_pet(const char* json_payload);
 
 /**
- * @brief Deletes a pet with the given ID.
- *
- * @param id The ID of the pet to delete.
- * @return int Returns 0 on success, non-zero on failure.
+ * @brief Updates an existing pet (PUT /v2/pet).
+ * @param json_payload  Raw JSON body from the request.
+ * @return 0 on success, non-zero on failure.
  */
-int handle_delete_pet(const char* id);
+int update_pet(const char* json_payload);
 
 /**
- * @brief Finds pets by the given tags.
- *
- * @param tags The tags to search for.
- * @return char* A JSON string containing the list of pets that match the tags.
- *         The caller is responsible for freeing the returned string.
+ * @brief Deletes a pet by its numeric ID (DELETE /v2/pet/{petId}).
+ * @param id_str  The pet ID as a string extracted from the URL.
+ * @return 0 on success, non-zero on failure.
  */
-char* handle_get_pet_by_tags(const char* tags);
+int delete_pet(const char* id_str);
 
 /**
- * @brief Finds pets by the given status list.
- *
- * @param statuses The list of state to search for.
- * @return char* A JSON string containing the list of pets that match the different state.
- *         The caller is responsible for freeing the returned string.
+ * @brief Finds a pet by ID (GET /v2/pet/{petId}).
+ * @param id_str  The pet ID as a string.
+ * @return Heap-allocated JSON string (caller frees), or NULL on failure.
  */
-char* handle_get_pet_by_state(const char* statuses);
+char* find_pet_by_id(const char* id_str);
 
 /**
- * @brief Finds a pet by the given ID.
- *
- * @param id The ID of the pet to search for.
- * @return char* A JSON string containing the pet details.
- *         The caller is responsible for freeing the returned string.
+ * @brief Finds pets by status (GET /v2/pet/findByStatus?status=...).
+ * @param statuses  Comma-separated status values.
+ * @return Heap-allocated JSON array string (caller frees), or NULL.
  */
-char* handle_get_pet_by_id(const char* id);
-
-// User methods
-/**
- * @brief Creates a new user from the given JSON payload.
- *
- * @param json_payload The JSON payload containing the user details.
- * @return int Returns 0 on success, non-zero on failure.
- */
-int handle_create_user(const char* json_payload);
+char* find_pets_by_status(const char* statuses);
 
 /**
- * @brief Updates an existing user with the given JSON payload.
- *
- * @param json_payload The JSON payload containing the updated user details.
- * @return int Returns 0 on success, non-zero on failure.
+ * @brief Finds pets by tags (GET /v2/pet/findByTags?tags=...).
+ * @param tags  Comma-separated tag names.
+ * @return Heap-allocated JSON array string (caller frees), or NULL.
  */
-int handle_update_user(const char* json_payload);
+char* find_pets_by_tags(const char* tags);
+
+/* ---------------------------------------------------------------------------
+ * User handlers
+ * --------------------------------------------------------------------------- */
 
 /**
- * @brief Deletes a user with the given ID.
- *
- * @param id The ID of the user to delete.
- * @return int Returns 0 on success, non-zero on failure.
+ * @brief Creates a new user (POST /v2/user).
+ * @param json_payload  Raw JSON body.
+ * @return 0 on success, non-zero on failure.
  */
-int handle_delete_user(const char* id);
+int create_user(const char* json_payload);
 
 /**
- * @brief Handles the POST /user/login route.
- *
- * @param json_payload The JSON payload containing the user login details.
- * @return int Returns 0 on success, non-zero on failure.
+ * @brief Updates a user by username (PUT /v2/user/{username}).
+ * @param username       The username from the URL path.
+ * @param json_payload   Raw JSON body with updated fields.
+ * @return 0 on success, non-zero on failure.
  */
-int handle_post_user_login(const char* json_payload);
+int update_user(const char* username, const char* json_payload);
 
 /**
- * @brief Handles the POST /user/logout route.
- *
- * @param username The username of the user to log out.
- * @return char* A JSON string containing the logout message.
- *         The caller is responsible for freeing the returned string.
+ * @brief Deletes a user by username (DELETE /v2/user/{username}).
+ * @param username  The username from the URL path.
+ * @return 0 on success, non-zero on failure.
  */
-char* handle_post_user_logout(const char* username);
+int delete_user(const char* username);
 
 /**
- * @brief Finds a user by the given ID.
- *
- * @param id The ID of the user to search for.
- * @return char* A JSON string containing the user details.
- *         The caller is responsible for freeing the returned string.
+ * @brief Finds a user by username (GET /v2/user/{username}).
+ * @param username  The username from the URL path.
+ * @return Heap-allocated JSON string (caller frees), or NULL.
  */
-char* handle_get_user_by_id(const char* id);
+char* get_user_by_name(const char* username);
 
 /**
- * @brief Finds all users.
- *
- * @return char* A JSON string containing the list of users.
- *         The caller is responsible for freeing the returned string.
+ * @brief Logs a user in (GET /v2/user/login?username=...&password=...).
+ * @param username  The username query parameter.
+ * @param password  The password query parameter.
+ * @return Heap-allocated JSON string (caller frees), or NULL on failure.
  */
-char* handle_get_all_users();
+char* login_user(const char* username, const char* password);
 
 /**
- * @brief Finds users by the given username.
- *
- * @param username The username to search for.
- * @return char* A JSON string containing the list of users that match the username.
- *         The caller is responsible for freeing the returned string.
+ * @brief Logs the current user out (GET /v2/user/logout).
+ * @return Heap-allocated JSON string (caller frees).
  */
-char* handle_get_user_by_username(const char* username);
+char* logout_user(void);
 
-#endif
+#endif /* HANDLERS_H */
