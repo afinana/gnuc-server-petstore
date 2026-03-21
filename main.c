@@ -18,12 +18,15 @@
 #define HTTP_CONTENT_TYPE_JSON "application/json"
 #define THREAD_POOL_SIZE 4
 
-static volatile sig_atomic_t keep_running = 1;
+static volatile sig_atomic_t* get_keep_running(void) {
+    static volatile sig_atomic_t keep_running_val = 1;
+    return &keep_running_val;
+}
 
 static void handle_signal(int sig) {
     if (sig == SIGINT || sig == SIGTERM) {
         LOG_ERROR("Termination signal (%d) received, shutting down...", sig);
-        keep_running = 0;
+        *get_keep_running() = 0;
     }
 }
 
@@ -50,16 +53,15 @@ static enum MHD_Result send_response(struct MHD_Connection* connection,
 
 static bool accumulate_upload_data(void** con_cls,
                                    const char* upload_data,
-                                   size_t* upload_data_size) {
+                                   size_t upload_data_size) {
     char* data = (char*)*con_cls;
     size_t current_len = data ? strlen(data) : 0;
-    char* new_data = realloc(data, current_len + *upload_data_size + 1);
+    char* new_data = realloc(data, current_len + upload_data_size + 1);
     if (!new_data) return false;
 
-    memcpy(new_data + current_len, upload_data, *upload_data_size);
-    new_data[current_len + *upload_data_size] = '\0';
+    memcpy(new_data + current_len, upload_data, upload_data_size);
+    new_data[current_len + upload_data_size] = '\0';
     *con_cls = new_data;
-    *upload_data_size = 0;
     return true;
 }
 
@@ -93,7 +95,8 @@ static enum MHD_Result request_handler(void* cls,
     /* POST /v2/pet — Create a pet */
     if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/pet") == 0) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) return MHD_NO;
+            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
+            *upload_data_size = 0;
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
@@ -107,7 +110,8 @@ static enum MHD_Result request_handler(void* cls,
     /* PUT /v2/pet — Update a pet */
     if (strcmp(method, "PUT") == 0 && strcmp(url, "/v2/pet") == 0) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) return MHD_NO;
+            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
+            *upload_data_size = 0;
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
@@ -183,7 +187,8 @@ static enum MHD_Result request_handler(void* cls,
     /* POST /v2/user — Create a user */
     if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/user") == 0) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) return MHD_NO;
+            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
+            *upload_data_size = 0;
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
@@ -197,7 +202,8 @@ static enum MHD_Result request_handler(void* cls,
     /* PUT /v2/user/{username} — Update a user */
     if (strcmp(method, "PUT") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) return MHD_NO;
+            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
+            *upload_data_size = 0;
             return MHD_YES;
         }
         const char* username = url + 9;
@@ -255,7 +261,7 @@ int main(void) {
     mongoc_init();
 
     const char* port_str = getenv("PORT");
-    int listen_port = (port_str != NULL) ? atoi(port_str) : 8080;
+    int listen_port = (port_str != NULL) ? (int)strtol(port_str, NULL, 10) : 8080;
 
     const char* mongo_uri = getenv("MONGO_URI");
     if (!mongo_uri) {
@@ -287,12 +293,12 @@ int main(void) {
     }
 
     LOG_INFO("Server running on http://localhost:%d (threads: %d)", listen_port, THREAD_POOL_SIZE);
-    fflush(stdout);
+    (void)fflush(stdout);
 
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    while (keep_running) {
+    while (*get_keep_running()) {
         sleep(1);
     }
 
