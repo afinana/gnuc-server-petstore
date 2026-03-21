@@ -21,8 +21,8 @@ static inline const char* current_time(void) {
     return buffer;
 }
 
-#define LOG_INFO(fmt, ...)  fprintf(stdout, "[%s] INFO: "  fmt "\n", current_time(), ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  fprintf(stdout, "[%s] WARN: "  fmt "\n", current_time(), ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...) fprintf(stderr, "[%s] ERROR: " fmt "\n", current_time(), ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)  (void)fprintf(stdout, "[%s] INFO: "  fmt "\n", current_time(), ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)  (void)fprintf(stdout, "[%s] WARN: "  fmt "\n", current_time(), ##__VA_ARGS__)
+#define LOG_ERROR(fmt, ...) (void)fprintf(stderr, "[%s] ERROR: " fmt "\n", current_time(), ##__VA_ARGS__)
 
 #endif /* LOG_UTILS_H */

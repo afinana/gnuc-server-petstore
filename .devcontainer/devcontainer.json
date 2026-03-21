@@ -1,0 +1,17 @@
+{
+	"name": "gnuc-server-petstore",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/workspace",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cpptools-extension-pack"
+			]
+		}
+	},
+	"postCreateCommand": "make",
+	"forwardPorts": [8080],
+	"remoteUser": "vscode"
+}
