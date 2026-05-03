@@ -1,6 +1,7 @@
 CC = cc
-CFLAGS = -std=c11 -Wall -Wextra -g -O2 $(shell pkg-config --cflags libmongoc-1.0)
-LDFLAGS = $(shell pkg-config --libs libmongoc-1.0) -lmicrohttpd
+CFLAGS = -Wall -Wextra -g -O2 -I/usr/local/include/libmongoc-1.0 -I/usr/local/include/libbson-1.0
+CFLAGS_DEBUG = -Wall -Wextra -g -O0 -DDEBUG -I/usr/local/include/libmongoc-1.0 -I/usr/local/include/libbson-1.0
+LDFLAGS = -L/usr/local/lib -lmongoc-1.0 -lbson-1.0 -lmicrohttpd -lcjson
 SRC = main.c handlers.c database.c
 OBJ = $(SRC:.c=.o)
 TARGET = petstore-api
@@ -13,7 +14,7 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS)
 
-debug: CFLAGS += -O0 -DDEBUG
+debug: CFLAGS = $(CFLAGS_DEBUG)
 debug: clean $(TARGET)
 
 clean:

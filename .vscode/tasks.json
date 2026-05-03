@@ -19,18 +19,6 @@
             "type": "shell",
             "command": "make clean",
             "problemMatcher": []
-        },
-        {
-            "label": "run",
-            "type": "shell",
-            "command": "make run",
-            "problemMatcher": []
-        },
-        {
-            "label": "benchmark",
-            "type": "shell",
-            "command": "./benchmark.sh",
-            "problemMatcher": []
         }
     ]
 }

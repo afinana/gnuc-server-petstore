@@ -1,9 +1,4 @@
-#include <sys/types.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-
 #include <microhttpd.h>
-#include <mongoc/mongoc.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -18,294 +13,326 @@
 #define HTTP_CONTENT_TYPE_JSON "application/json"
 #define THREAD_POOL_SIZE 4
 
-static volatile sig_atomic_t* get_keep_running(void) {
-    static volatile sig_atomic_t keep_running_val = 1;
-    return &keep_running_val;
-}
+volatile sig_atomic_t keep_running = 1;
 
-static void handle_signal(int sig) {
-    if (sig == SIGINT || sig == SIGTERM) {
-        LOG_ERROR("Termination signal (%d) received, shutting down...", sig);
-        *get_keep_running() = 0;
+void handle_signal(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        LOG_ERROR("Termination signal (%d) received, shutting down...", signal);
+        keep_running = 0;
     }
 }
 
-/* ---------------------------------------------------------------------------
- * HTTP response helper
- * --------------------------------------------------------------------------- */
-
-static enum MHD_Result send_response(struct MHD_Connection* connection,
-                                     const char* body,
-                                     unsigned int status_code) {
-    struct MHD_Response* response =
-        MHD_create_response_from_buffer(strlen(body), (void*)body, MHD_RESPMEM_MUST_COPY);
-    if (!response) return MHD_NO;
-
+/**
+ * @brief Creates and sends an HTTP response.
+ */
+static int send_response(struct MHD_Connection* connection, const char* message, unsigned int status_code) {
+    struct MHD_Response* response = MHD_create_response_from_buffer(strlen(message), (void*)message, MHD_RESPMEM_MUST_COPY);
+    if (!response) {
+        return MHD_NO;
+    }
     MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, HTTP_CONTENT_TYPE_JSON);
-    enum MHD_Result ret = MHD_queue_response(connection, status_code, response);
+    int ret = MHD_queue_response(connection, status_code, response);
     MHD_destroy_response(response);
     return ret;
 }
 
-/* ---------------------------------------------------------------------------
- * Upload-data accumulator (for POST / PUT bodies)
- * --------------------------------------------------------------------------- */
-
-static bool accumulate_upload_data(void** con_cls,
-                                   const char* upload_data,
-                                   size_t upload_data_size) {
+/**
+ * @brief Accumulates chunked upload data into a dynamically growing buffer.
+ *
+ * @param con_cls Pointer to connection-specific data (the buffer).
+ * @param upload_data The data chunk received.
+ * @param upload_data_size Pointer to the size of the chunk; set to 0 on success.
+ * @return true on success, false on memory allocation failure.
+ */
+static bool accumulate_upload_data(void** con_cls, const char* upload_data, size_t* upload_data_size) {
     char* data = (char*)*con_cls;
-    size_t current_len = data ? strlen(data) : 0;
-    char* new_data = realloc(data, current_len + upload_data_size + 1);
-    if (!new_data) return false;
-
-    memcpy(new_data + current_len, upload_data, upload_data_size);
-    new_data[current_len + upload_data_size] = '\0';
+    size_t current_length = data ? strlen(data) : 0;
+    char* new_data = realloc(data, current_length + *upload_data_size + 1);
+    if (new_data == NULL) {
+        return false;
+    }
+    memcpy(new_data + current_length, upload_data, *upload_data_size);
+    new_data[current_length + *upload_data_size] = '\0';
     *con_cls = new_data;
+    *upload_data_size = 0;
     return true;
 }
 
-/* ---------------------------------------------------------------------------
- * Request router
- * --------------------------------------------------------------------------- */
-
+/**
+ * @brief Handles incoming HTTP requests and routes them to the appropriate handler.
+ */
 static enum MHD_Result request_handler(void* cls,
-                                       struct MHD_Connection* connection,
-                                       const char* url,
-                                       const char* method,
-                                       const char* version,
-                                       const char* upload_data,
-                                       size_t* upload_data_size,
-                                       void** con_cls) {
+    struct MHD_Connection* connection,
+    const char* url,
+    const char* method,
+    const char* version,
+    const char* upload_data,
+    size_t* upload_data_size,
+    void** con_cls) {
+
     (void)cls;
     (void)version;
 
-    /* First call: allocate connection-specific buffer */
+    // First call: allocate connection-specific data
     if (*con_cls == NULL) {
         *con_cls = calloc(1, sizeof(char));
-        return *con_cls ? MHD_YES : MHD_NO;
+        if (*con_cls == NULL) {
+            return MHD_NO;
+        }
+        return MHD_YES;
     }
 
     LOG_INFO("%s %s", method, url);
 
-    /* ======================================================================
-     * PET routes
-     * ====================================================================== */
+    // ========================
+    // Pet routes
+    // ========================
 
-    /* POST /v2/pet — Create a pet */
+    // POST /v2/pet — Create a pet
     if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/pet") == 0) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
-            *upload_data_size = 0;
+            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) {
+                return MHD_NO;
+            }
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
-        int rc = create_pet(data);
-        free(data); *con_cls = NULL;
-        return rc != 0
+        int result = handle_create_pet(data);
+        free(data);
+        *con_cls = NULL;
+        return result != 0
             ? send_response(connection, "{\"error\":\"Failed to create pet\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
             : send_response(connection, "{\"message\":\"Pet created successfully\"}", MHD_HTTP_OK);
     }
 
-    /* PUT /v2/pet — Update a pet */
+    // PUT /v2/pet — Update a pet
     if (strcmp(method, "PUT") == 0 && strcmp(url, "/v2/pet") == 0) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
-            *upload_data_size = 0;
+            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) {
+                return MHD_NO;
+            }
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
-        int rc = update_pet(data);
-        free(data); *con_cls = NULL;
-        return rc != 0
+        int result = handle_update_pet(data);
+        free(data);
+        *con_cls = NULL;
+        return result != 0
             ? send_response(connection, "{\"error\":\"Failed to update pet\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
             : send_response(connection, "{\"message\":\"Pet updated successfully\"}", MHD_HTTP_OK);
     }
 
-    /* GET /v2/pet/findByStatus — Find pets by status */
-    if (strcmp(method, "GET") == 0 && strcmp(url, "/v2/pet/findByStatus") == 0) {
-        const char* status = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "status");
-        char* result = find_pets_by_status(status);
-        if (!result) return send_response(connection, "{\"error\":\"Failed to find pets by status\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
-        enum MHD_Result ret = send_response(connection, result, MHD_HTTP_OK);
-        free(result);
-        return ret;
-    }
-
-    /* GET /v2/pet/findByTags — Find pets by tags */
+    // GET /v2/pet/findByTags — Search by tags (must come before /v2/pet/{id})
     if (strcmp(method, "GET") == 0 && strcmp(url, "/v2/pet/findByTags") == 0) {
         const char* tags = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "tags");
-        char* result = find_pets_by_tags(tags);
-        if (!result) return send_response(connection, "{\"error\":\"Failed to find pets by tags\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
-        enum MHD_Result ret = send_response(connection, result, MHD_HTTP_OK);
+        char* result = handle_get_pet_by_tags(tags);
+        if (result == NULL) {
+            return send_response(connection, "{\"error\":\"Failed to find pets by tags\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
         return ret;
     }
 
-    /* DELETE /v2/pet/{petId} */
+    // GET /v2/pet/findByStatus — Search by status (must come before /v2/pet/{id})
+    if (strcmp(method, "GET") == 0 && strcmp(url, "/v2/pet/findByStatus") == 0) {
+        const char* state = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "status");
+        char* result = handle_get_pet_by_state(state);
+        if (result == NULL) {
+            return send_response(connection, "{\"error\":\"Failed to find pets by state\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        int ret = send_response(connection, result, MHD_HTTP_OK);
+        free(result);
+        return ret;
+    }
+
+    // DELETE /v2/pet/{id} — Delete a pet
     if (strcmp(method, "DELETE") == 0 && strncmp(url, "/v2/pet/", 8) == 0 && strlen(url) > 8) {
         const char* id = url + 8;
-        int rc = delete_pet(id);
-        return rc != 0
-            ? send_response(connection, "{\"error\":\"Failed to delete pet\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
-            : send_response(connection, "{\"message\":\"Pet deleted successfully\"}", MHD_HTTP_OK);
+        if (handle_delete_pet(id) != 0) {
+            return send_response(connection, "{\"error\":\"Failed to delete pet\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        return send_response(connection, "{\"message\":\"Pet deleted successfully\"}", MHD_HTTP_OK);
     }
 
-    /* GET /v2/pet/{petId} — Must be AFTER findByStatus and findByTags */
+    // GET /v2/pet/{petId} — Get pet by ID
     if (strcmp(method, "GET") == 0 && strncmp(url, "/v2/pet/", 8) == 0 && strlen(url) > 8) {
         const char* id = url + 8;
-        char* result = find_pet_by_id(id);
-        if (!result) return send_response(connection, "{\"error\":\"Pet not found\"}", MHD_HTTP_NOT_FOUND);
-        enum MHD_Result ret = send_response(connection, result, MHD_HTTP_OK);
+        char* result = handle_get_pet_by_id(id);
+        if (result == NULL) {
+            return send_response(connection, "{\"error\":\"Failed to find pet by ID\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
         return ret;
     }
 
-    /* ======================================================================
-     * USER routes — exact matches first, then prefix matches
-     * ====================================================================== */
+    // ========================
+    // User routes — exact matches first, then prefix matches
+    // ========================
 
-    /* GET /v2/user/login */
-    if (strcmp(method, "GET") == 0 && strcmp(url, "/v2/user/login") == 0) {
-        const char* username = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "username");
-        const char* password = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "password");
-        char* result = login_user(username, password);
-        if (!result) return send_response(connection, "{\"error\":\"Invalid username/password\"}", MHD_HTTP_BAD_REQUEST);
-        enum MHD_Result ret = send_response(connection, result, MHD_HTTP_OK);
-        free(result);
-        return ret;
-    }
-
-    /* GET /v2/user/logout */
-    if (strcmp(method, "GET") == 0 && strcmp(url, "/v2/user/logout") == 0) {
-        char* result = logout_user();
-        enum MHD_Result ret = send_response(connection, result, MHD_HTTP_OK);
-        free(result);
-        return ret;
-    }
-
-    /* POST /v2/user — Create a user */
-    if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/user") == 0) {
+    // POST /v2/user/login — Login (exact match, must precede /v2/user/{username})
+    if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/user/login") == 0) {
         if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
-            *upload_data_size = 0;
+            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) {
+                return MHD_NO;
+            }
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
-        int rc = create_user(data);
-        free(data); *con_cls = NULL;
-        return rc != 0
+        int result = handle_post_user_login(data);
+        free(data);
+        *con_cls = NULL;
+        return result != 0
+            ? send_response(connection, "{\"error\":\"Failed to login user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
+            : send_response(connection, "{\"message\":\"User logged in successfully\"}", MHD_HTTP_OK);
+    }
+
+    // POST /v2/user/logout — Logout (exact match, must precede /v2/user/{username})
+    if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/user/logout") == 0) {
+        const char* username = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, "username");
+        char* result = handle_post_user_logout(username);
+        if (result == NULL) {
+            return send_response(connection, "{\"error\":\"Failed to logout user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        int ret = send_response(connection, result, MHD_HTTP_OK);
+        free(result);
+        return ret;
+    }
+
+    // POST /v2/user — Create a user (exact match)
+    if (strcmp(method, "POST") == 0 && strcmp(url, "/v2/user") == 0) {
+        if (*upload_data_size != 0) {
+            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) {
+                return MHD_NO;
+            }
+            return MHD_YES;
+        }
+        char* data = (char*)*con_cls;
+        int result = handle_create_user(data);
+        free(data);
+        *con_cls = NULL;
+        return result != 0
             ? send_response(connection, "{\"error\":\"Failed to create user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
             : send_response(connection, "{\"message\":\"User created successfully\"}", MHD_HTTP_OK);
     }
 
-    /* PUT /v2/user/{username} — Update a user */
-    if (strcmp(method, "PUT") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
-        if (*upload_data_size != 0) {
-            if (!accumulate_upload_data(con_cls, upload_data, *upload_data_size)) return MHD_NO;
-            *upload_data_size = 0;
-            return MHD_YES;
+    // GET /v2/user — List all users (exact match, must precede /v2/user/{username})
+    if (strcmp(method, "GET") == 0 && strcmp(url, "/v2/user") == 0) {
+        char* result = handle_get_all_users();
+        if (result == NULL) {
+            return send_response(connection, "{\"error\":\"Failed to find users\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
         }
-        const char* username = url + 9;
-        char* data = (char*)*con_cls;
-        int rc = update_user(username, data);
-        free(data); *con_cls = NULL;
-        return rc != 0
-            ? send_response(connection, "{\"error\":\"Failed to update user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
-            : send_response(connection, "{\"message\":\"User updated successfully\"}", MHD_HTTP_OK);
-    }
-
-    /* DELETE /v2/user/{username} */
-    if (strcmp(method, "DELETE") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
-        const char* username = url + 9;
-        int rc = delete_user(username);
-        return rc != 0
-            ? send_response(connection, "{\"error\":\"Failed to delete user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
-            : send_response(connection, "{\"message\":\"User deleted successfully\"}", MHD_HTTP_OK);
-    }
-
-    /* GET /v2/user/{username} — Must be LAST among user routes */
-    if (strcmp(method, "GET") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
-        const char* username = url + 9;
-        char* result = get_user_by_name(username);
-        if (!result) return send_response(connection, "{\"error\":\"User not found\"}", MHD_HTTP_NOT_FOUND);
-        enum MHD_Result ret = send_response(connection, result, MHD_HTTP_OK);
+        int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
         return ret;
     }
 
-    /* ====================================================================== */
+    // PUT /v2/user — Update a user (exact match)
+    if (strcmp(method, "PUT") == 0 && strcmp(url, "/v2/user") == 0) {
+        if (*upload_data_size != 0) {
+            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) {
+                return MHD_NO;
+            }
+            return MHD_YES;
+        }
+        char* data = (char*)*con_cls;
+        int result = handle_update_user(data);
+        free(data);
+        *con_cls = NULL;
+        return result != 0
+            ? send_response(connection, "{\"error\":\"Failed to update user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
+            : send_response(connection, "{\"message\":\"User updated successfully\"}", MHD_HTTP_OK);
+    }
 
+    // DELETE /v2/user/{username} — Delete a user (prefix match)
+    if (strcmp(method, "DELETE") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
+        const char* username = url + 9;
+        if (handle_delete_user(username) != 0) {
+            return send_response(connection, "{\"error\":\"Failed to delete user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        return send_response(connection, "{\"message\":\"User deleted successfully\"}", MHD_HTTP_OK);
+    }
+
+    // GET /v2/user/{username} — Get user by username (prefix match, must be last)
+    if (strcmp(method, "GET") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
+        const char* username = url + 9;
+        char* result = handle_get_user_by_username(username);
+        if (result == NULL) {
+            return send_response(connection, "{\"error\":\"Failed to find user by username\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
+        }
+        int ret = send_response(connection, result, MHD_HTTP_OK);
+        free(result);
+        return ret;
+    }
+
+    // No route matched
     return send_response(connection, "{\"error\":\"Not found\"}", MHD_HTTP_NOT_FOUND);
 }
 
-/* ---------------------------------------------------------------------------
- * Connection cleanup callback
- * --------------------------------------------------------------------------- */
-
+/**
+ * @brief Frees connection-specific data when a request completes.
+ */
 static void request_completed(void* cls, struct MHD_Connection* connection,
-                              void** con_cls, enum MHD_RequestTerminationCode toe) {
-    (void)cls; (void)connection; (void)toe;
-    if (*con_cls) {
+    void** con_cls, enum MHD_RequestTerminationCode toe) {
+    (void)cls;
+    (void)connection;
+    (void)toe;
+    if (*con_cls != NULL) {
         free(*con_cls);
         *con_cls = NULL;
     }
 }
 
-/* ---------------------------------------------------------------------------
- * main
- * --------------------------------------------------------------------------- */
-
+/**
+ * @brief The main function. Initializes database, starts the HTTP server with
+ *        a thread pool, and waits for a termination signal.
+ */
 int main(void) {
-    /* Initialise the MongoDB C Driver */
-    mongoc_init();
+    struct MHD_Daemon* daemon;
 
-    const char* port_str = getenv("PORT");
-    int listen_port = (port_str != NULL) ? (int)strtol(port_str, NULL, 10) : 8080;
+    const char* env_port = getenv("port");
+    int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
 
-    const char* mongo_uri = getenv("MONGO_URI");
-    if (!mongo_uri) {
-        mongo_uri = "mongodb://localhost:27017";
+    const char* db_uri = getenv("mongoURI");
+    if (db_uri == NULL) {
+        db_uri = "mongodb://root@127.0.0.1:27017/admin?retryWrites=true&loadBalanced=false&connectTimeoutMS=10000&authSource=admin&authMechanism=SCRAM-SHA-256";
     }
-    LOG_INFO("MONGO_URI: %s", mongo_uri);
+    LOG_INFO("mongoURI: %s", db_uri);
 
-    if (db_init(mongo_uri) != 0) {
-        LOG_ERROR("Database initialisation failed — exiting");
-        mongoc_cleanup();
-        return EXIT_FAILURE;
-    }
+    db_init(db_uri);
 
-    struct MHD_Daemon* daemon = MHD_start_daemon(
-        MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_ERROR_LOG,
-        (uint16_t)listen_port,
-        NULL, NULL,
-        &request_handler, NULL,
+    // Start the HTTP server with a thread pool for concurrent request handling
+    daemon = MHD_start_daemon(MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_ERROR_LOG,
+        listen_port,
+        NULL,
+        NULL,
+        &request_handler,
+        NULL,
         MHD_OPTION_THREAD_POOL_SIZE, (unsigned int)THREAD_POOL_SIZE,
         MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int)120,
         MHD_OPTION_NOTIFY_COMPLETED, &request_completed, NULL,
         MHD_OPTION_END);
 
-    if (!daemon) {
+    if (NULL == daemon) {
         LOG_ERROR("Failed to start HTTP server");
         db_cleanup();
-        mongoc_cleanup();
-        return EXIT_FAILURE;
+        return 1;
     }
-
-    LOG_INFO("Server running on http://localhost:%d (threads: %d)", listen_port, THREAD_POOL_SIZE);
-    (void)fflush(stdout);
+    LOG_INFO("Server is running on http://localhost:%d (thread pool: %d)", listen_port, THREAD_POOL_SIZE);
+    fflush(stdout);
 
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    while (*get_keep_running()) {
+    while (keep_running) {
         sleep(1);
     }
 
     MHD_stop_daemon(daemon);
     db_cleanup();
-    mongoc_cleanup();
 
-    LOG_WARN("Server stopped");
-    return EXIT_SUCCESS;
+    LOG_WARN("Server is down");
+
+    return 0;
 }

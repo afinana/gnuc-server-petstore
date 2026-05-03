@@ -6,23 +6,25 @@
 #include <sys/time.h>
 
 /**
- * @brief Returns the current timestamp as "YYYY-MM-DD HH:MM:SS.mmm".
+ * @brief Get the current time as a string (thread-safe version).
  *
- * Uses a static buffer — not thread-safe, but acceptable for logging macros
- * that are already serialised through stdio.
+ * Uses a thread-local buffer to avoid race conditions when called
+ * from multiple HTTP handler threads simultaneously.
+ *
+ * @return const char* The current time in "YYYY-MM-DD HH:MM:SS.mmm" format.
  */
 static inline const char* current_time(void) {
-    static char buffer[40];
+    static _Thread_local char buffer[32];
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    struct tm* ti = localtime(&tv.tv_sec);
-    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", ti);
-    snprintf(buffer + 19, sizeof(buffer) - 19, ".%03ld", (long)(tv.tv_usec / 1000));
+    struct tm* timeinfo = localtime(&tv.tv_sec);
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+    snprintf(buffer + 19, sizeof(buffer) - 19, ".%03d", (int)(tv.tv_usec / 1000));
     return buffer;
 }
 
-#define LOG_INFO(fmt, ...)  (void)fprintf(stdout, "[%s] INFO: "  fmt "\n", current_time(), ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  (void)fprintf(stdout, "[%s] WARN: "  fmt "\n", current_time(), ##__VA_ARGS__)
-#define LOG_ERROR(fmt, ...) (void)fprintf(stderr, "[%s] ERROR: " fmt "\n", current_time(), ##__VA_ARGS__)
+#define LOG_INFO(format, ...) fprintf(stdout, "[%s] INFO: " format "\n", current_time(), ##__VA_ARGS__)
+#define LOG_WARN(format, ...) fprintf(stdout, "[%s] WARN: " format "\n", current_time(), ##__VA_ARGS__)
+#define LOG_ERROR(format, ...) fprintf(stderr, "[%s] ERROR: " format "\n", current_time(), ##__VA_ARGS__)
 
-#endif /* LOG_UTILS_H */
+#endif // LOG_UTILS_H

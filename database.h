@@ -5,68 +5,72 @@
 #include <mongoc/mongoc.h>
 
 /**
- * @brief Initializes the MongoDB connection.
+ * @brief Initializes the MongoDB connection pool.
  *
- * Calls mongoc_init(), creates a client pool from the URI,
- * and verifies the connection with a ping.
- *
- * @param uri The MongoDB connection URI.
- * @return int Returns 0 on success, 1 on failure.
+ * @param uri The MongoDB connection URI string.
  */
-int db_init(const char* uri);
+void db_init(const char* uri);
 
 /**
- * @brief Cleans up the MongoDB connection.
- *
- * Destroys the client pool and calls mongoc_cleanup().
+ * @brief Cleans up the MongoDB connection pool and resources.
  */
-void db_cleanup(void);
+void db_cleanup();
 
 /**
- * @brief Inserts a single document into the specified collection.
+ * @brief Inserts a BSON document into the specified collection.
+ *
+ * @param collection_name The name of the collection to insert into.
+ * @param doc The BSON document to insert.
+ * @return bool Returns true on success, false on failure.
+ */
+bool db_insert(const char* collection_name, const bson_t* doc);
+
+/**
+ * @brief Updates a document in the specified collection.
  *
  * @param collection_name The name of the collection.
- * @param doc The BSON document to insert. Ownership is NOT transferred.
- * @return true on success, false on failure.
+ * @param query The BSON query to match the document.
+ * @param update The BSON update document.
+ * @return bool Returns true on success, false on failure.
  */
-bool db_insert_one(const char* collection_name, const bson_t* doc);
+bool db_update(const char* collection_name, const bson_t* query, const bson_t* update);
 
 /**
- * @brief Finds a single document matching the filter.
+ * @brief Deletes a document from the specified collection.
  *
  * @param collection_name The name of the collection.
- * @param filter The BSON query filter. Ownership is NOT transferred.
- * @return bson_t* A heap-allocated BSON document (caller must bson_destroy + bson_free),
- *         or NULL if not found.
+ * @param query The BSON query to match the document to delete.
+ * @return bool Returns true on success, false on failure.
  */
-bson_t* db_find_one(const char* collection_name, const bson_t* filter);
+bool db_delete(const char* collection_name, const bson_t* query);
 
 /**
- * @brief Finds all documents matching the filter and returns as a JSON array string.
+ * @brief Finds a single document matching the query.
  *
- * @param collection_name The name of the collection.
- * @param filter The BSON query filter.
- * @return char* A heap-allocated JSON string, or "[]" on failure (caller must free).
+ * @param collection_name The name of the collection to search.
+ * @param query The BSON query to match.
+ * @return bson_t* A copy of the matching document, or NULL if not found.
+ *         The caller is responsible for freeing with bson_destroy().
  */
-char* db_find_as_json_array(const char* collection_name, const bson_t* filter);
+bson_t* db_find_one(const char* collection_name, const bson_t* query);
 
 /**
- * @brief Updates a single document matching the filter.
+ * @brief Finds all documents matching the query.
  *
- * @param collection_name The name of the collection.
- * @param filter The BSON query filter.
- * @param update The BSON update document (should contain $set, etc.).
- * @return true on success, false on failure.
+ * @param collection_name The name of the collection to search.
+ * @param query The BSON query to match.
+ * @return bson_t* A BSON document containing an array of results.
+ *         The caller is responsible for freeing with bson_destroy().
  */
-bool db_update_one(const char* collection_name, const bson_t* filter, const bson_t* update);
+bson_t* db_find(const char* collection_name, const bson_t* query);
 
 /**
- * @brief Deletes a single document matching the filter.
+ * @brief Finds all documents in the specified collection.
  *
- * @param collection_name The name of the collection.
- * @param filter The BSON query filter.
- * @return true on success, false on failure.
+ * @param collection_name The name of the collection to search.
+ * @return bson_t* A BSON document containing an array of all documents.
+ *         The caller is responsible for freeing with bson_destroy().
  */
-bool db_delete_one(const char* collection_name, const bson_t* filter);
+bson_t* db_find_all(const char* collection_name);
 
-#endif /* DATABASE_H */
+#endif // DATABASE_H
