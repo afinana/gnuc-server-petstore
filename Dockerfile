@@ -3,7 +3,7 @@ FROM debian:bookworm AS builder
 
 WORKDIR /build
 
-# Install build toolchain and dev libraries
+# Install build toolchain and MongoDB C driver dev libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
@@ -11,13 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libmicrohttpd-dev \
     libmongoc-dev \
+    libcjson-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source files
+# Copy source and build files
 COPY *.c *.h Makefile ./
 
-# Build with the project Makefile
-RUN make all
+# Build using the Makefile
+RUN make all \
+    "CFLAGS=-Wall -Wextra -g -O2 $(pkg-config --cflags libmongoc-1.0)" \
+    "LDFLAGS=$(pkg-config --libs libmongoc-1.0) -lmicrohttpd -lcjson"
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
@@ -25,6 +28,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmicrohttpd12 \
     libmongoc-1.0-0 \
+    libcjson1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -37,8 +41,7 @@ COPY --from=builder /build/petstore-api /app/petstore-api
 WORKDIR /app
 USER petstore
 
-ENV PORT=8080
-ENV MONGO_URI=mongodb://host.docker.internal:27017
+ENV port=8080
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \

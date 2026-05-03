@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+*.o
+petstore-api
+*.sln
+*.vcxproj
+LICENSE
+README.md
+Benchmark.md
+.deepsource.toml
+.gitignore
