@@ -3,22 +3,23 @@
 
 #include <stdio.h>
 #include <time.h>
-#include <sys/time.h> // Include for gettimeofday
+#include <sys/time.h>
 
 /**
- * @brief Get the current time as a string.
+ * @brief Get the current time as a string (thread-safe version).
  *
- * This function returns the current time as a string in the format "YYYY-MM-DD HH:MM:SS.mmm".
+ * Uses a thread-local buffer to avoid race conditions when called
+ * from multiple HTTP handler threads simultaneously.
  *
- * @return const char* The current time as a string.
+ * @return const char* The current time in "YYYY-MM-DD HH:MM:SS.mmm" format.
  */
-static const char* current_time() {
-    static char buffer[30]; // Adjust buffer size to accommodate milliseconds
+static inline const char* current_time(void) {
+    static _Thread_local char buffer[32];
     struct timeval tv;
     gettimeofday(&tv, NULL);
     struct tm* timeinfo = localtime(&tv.tv_sec);
     strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
-    snprintf(buffer + 19, sizeof(buffer) - 19, ".%03ld", tv.tv_usec / 1000); // Add milliseconds
+    snprintf(buffer + 19, sizeof(buffer) - 19, ".%03d", (int)(tv.tv_usec / 1000));
     return buffer;
 }
 

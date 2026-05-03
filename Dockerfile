@@ -1,25 +1,26 @@
-# Stage 1: Builder — use same Debian version as runtime
+# Stage 1: Builder
 FROM debian:bookworm AS builder
 
 WORKDIR /build
 
-# Install build toolchain and dev libraries
+# Install build toolchain and MongoDB C driver dev libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
     make \
+    pkg-config \
     libmicrohttpd-dev \
-    libhiredis-dev \
+    libmongoc-dev \
     libcjson-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy source files
-COPY *.c *.h ./
+# Copy source and build files
+COPY *.c *.h Makefile ./
 
-# Build with optimizations
-RUN gcc -Wall -Wextra -O2 main.c database.c handlers.c -o petstore-api \
-    -I/usr/include/libmongoc-1.0 -I/usr/include/libbson-1.0 \
-    -lmicrohttpd -lbson-1.0 -lmongoc-1.0
+# Build using the Makefile
+RUN make all \
+    "CFLAGS=-Wall -Wextra -g -O2 $(pkg-config --cflags libmongoc-1.0)" \
+    "LDFLAGS=$(pkg-config --libs libmongoc-1.0) -lmicrohttpd -lcjson"
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
@@ -27,6 +28,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmicrohttpd12 \
     libmongoc-1.0-0 \
+    libcjson1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
