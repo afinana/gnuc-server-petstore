@@ -1,3 +1,9 @@
+#include <sys/types.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include <microhttpd.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +23,7 @@ volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
+        LOG_ERROR("Termination signal (%d) received, shutting down...", signal);
         keep_running = 0;
     }
 }
@@ -55,52 +62,6 @@ static bool accumulate_upload_data(void** con_cls, const char* upload_data, size
     *con_cls = new_data;
     *upload_data_size = 0;
     return true;
-}
-
-// Pet route handlers (thin wrappers for clarity)
-int handle_post_pet(const char* json_payload) {
-    return create_pet(json_payload);
-}
-
-int handle_put_pet(const char* json_payload) {
-    return update_pet(json_payload);
-}
-
-int handle_delete_pet(const char* id) {
-    return delete_pet_by_id(id);
-}
-
-char* handle_get_pet_by_tags(const char* tags) {
-    return find_pets_by_tags(tags);
-}
-
-char* handle_get_pet_by_state(const char* state) {
-    return find_pets_by_state(state);
-}
-
-char* handle_get_pet_by_id(const char* id) {
-    return find_pet_by_id(id);
-}
-
-// User route handlers
-int handle_post_user(const char* json_payload) {
-    return create_user(json_payload);
-}
-
-int handle_put_user(const char* json_payload) {
-    return update_user(json_payload);
-}
-
-int handle_delete_user(const char* id) {
-    return delete_user_by_id(id);
-}
-
-char* handle_get_all_users() {
-    return find_all_users();
-}
-
-char* handle_get_user_by_username(const char* username) {
-    return find_user_by_username(username);
 }
 
 /**
@@ -142,7 +103,7 @@ static enum MHD_Result request_handler(void* cls,
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
-        int result = handle_post_pet(data);
+        int result = handle_create_pet(data);
         free(data);
         *con_cls = NULL;
         return result != 0
@@ -159,7 +120,7 @@ static enum MHD_Result request_handler(void* cls,
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
-        int result = handle_put_pet(data);
+        int result = handle_update_pet(data);
         free(data);
         *con_cls = NULL;
         return result != 0
@@ -191,7 +152,7 @@ static enum MHD_Result request_handler(void* cls,
         return ret;
     }
 
-    // DELETE /v2/pet/{id} — Delete a pet (fixed: offset 8 for "/v2/pet/")
+    // DELETE /v2/pet/{id} — Delete a pet
     if (strcmp(method, "DELETE") == 0 && strncmp(url, "/v2/pet/", 8) == 0 && strlen(url) > 8) {
         const char* id = url + 8;
         if (handle_delete_pet(id) != 0) {
@@ -200,7 +161,7 @@ static enum MHD_Result request_handler(void* cls,
         return send_response(connection, "{\"message\":\"Pet deleted successfully\"}", MHD_HTTP_OK);
     }
 
-    // GET /v2/pet/{petId} — Get pet by ID (fixed: offset 8 and strncmp length 8)
+    // GET /v2/pet/{petId} — Get pet by ID
     if (strcmp(method, "GET") == 0 && strncmp(url, "/v2/pet/", 8) == 0 && strlen(url) > 8) {
         const char* id = url + 8;
         char* result = handle_get_pet_by_id(id);
@@ -254,7 +215,7 @@ static enum MHD_Result request_handler(void* cls,
             return MHD_YES;
         }
         char* data = (char*)*con_cls;
-        int result = handle_post_user(data);
+        int result = handle_create_user(data);
         free(data);
         *con_cls = NULL;
         return result != 0
@@ -271,6 +232,23 @@ static enum MHD_Result request_handler(void* cls,
         int ret = send_response(connection, result, MHD_HTTP_OK);
         free(result);
         return ret;
+    }
+
+    // PUT /v2/user — Update a user (exact match)
+    if (strcmp(method, "PUT") == 0 && strcmp(url, "/v2/user") == 0) {
+        if (*upload_data_size != 0) {
+            if (!accumulate_upload_data(con_cls, upload_data, upload_data_size)) {
+                return MHD_NO;
+            }
+            return MHD_YES;
+        }
+        char* data = (char*)*con_cls;
+        int result = handle_update_user(data);
+        free(data);
+        *con_cls = NULL;
+        return result != 0
+            ? send_response(connection, "{\"error\":\"Failed to update user\"}", MHD_HTTP_INTERNAL_SERVER_ERROR)
+            : send_response(connection, "{\"message\":\"User updated successfully\"}", MHD_HTTP_OK);
     }
 
     // DELETE /v2/user/{username} — Delete a user (prefix match)
@@ -316,7 +294,7 @@ static void request_completed(void* cls, struct MHD_Connection* connection,
  * @brief The main function. Initializes database, starts the HTTP server with
  *        a thread pool, and waits for a termination signal.
  */
-int main() {
+int main(void) {
     struct MHD_Daemon* daemon;
 
     const char* env_port = getenv("port");

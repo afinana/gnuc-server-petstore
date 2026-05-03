@@ -1,503 +1,459 @@
-#include "handlers.h"
 #include "database.h"
+#include "handlers.h"
+
 #include <stdlib.h>
-#include <bson/bson.h>
 #include <stdio.h>
 #include <string.h>
-#include "log-utils.h" // Include the log utils header
+#include <cjson/cJSON.h>
+#include "log-utils.h"
+
+/**
+ * @brief Helper: converts a JSON string to a BSON document.
+ *
+ * @param json_str The JSON string to convert.
+ * @return bson_t* The resulting BSON document, or NULL on error.
+ *         The caller must free with bson_destroy().
+ */
+static bson_t* json_to_bson(const char* json_str) {
+    bson_error_t error;
+    bson_t* doc = bson_new_from_json((const uint8_t*)json_str, -1, &error);
+    if (!doc) {
+        LOG_ERROR("Failed to parse JSON to BSON: %s", error.message);
+    }
+    return doc;
+}
+
+/**
+ * @brief Helper: converts a BSON document to a JSON string.
+ *
+ * @param doc The BSON document.
+ * @return char* The JSON string. Caller must free with bson_free().
+ */
+static char* bson_to_json(const bson_t* doc) {
+    return bson_as_relaxed_extended_json(doc, NULL);
+}
+
+// ========================
+// Pet handlers
+// ========================
 
 /**
  * @brief Creates a new pet from the given JSON payload.
- *
- * @param json_payload The JSON payload containing the pet details.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
-int create_pet(const char* json_payload) {
-    LOG_INFO("create_pet");
-    bson_error_t error;
-    bson_t* doc = bson_new_from_json((const uint8_t*)json_payload, -1, &error);
-    if (!doc) {
-        LOG_ERROR("Failed to parse JSON: %s", error.message);
-        return EXIT_FAILURE;
-    }
+int handle_create_pet(const char* json_payload) {
+    LOG_INFO("handle_create_pet");
+    bson_t* doc = json_to_bson(json_payload);
+    if (!doc) return EXIT_FAILURE;
 
-    if (!db_insert("pets", doc)) {
+    bool success = db_insert("pets", doc);
+    if (!success) {
         LOG_ERROR("Failed to insert pet");
-        bson_destroy(doc);
-        return EXIT_FAILURE;
     }
 
     bson_destroy(doc);
-    return EXIT_SUCCESS;
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /**
  * @brief Updates an existing pet with the given JSON payload.
- *
- * @param json_payload The JSON payload containing the updated pet details.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
-int update_pet(const char* json_payload) {
-    LOG_INFO("update_pet");
-    bson_error_t error;
-    bson_t* update = bson_new_from_json((const uint8_t*)json_payload, -1, &error);
-    if (!update) {
-        LOG_ERROR("Failed to parse JSON: %s", error.message);
-        return EXIT_FAILURE;
-    }
+int handle_update_pet(const char* json_payload) {
+    LOG_INFO("handle_update_pet");
+    bson_t* doc = json_to_bson(json_payload);
+    if (!doc) return EXIT_FAILURE;
 
-    // Read the JSON payload and extract the id field
+    // Extract the "id" field to build the query filter
     bson_iter_t iter;
-    const char* id_str = NULL;
-    if (bson_iter_init_find(&iter, update, "id") && BSON_ITER_HOLDS_UTF8(&iter)) {
-        id_str = bson_iter_utf8(&iter, NULL);
-    }
-    else {
+    if (!bson_iter_init_find(&iter, doc, "id")) {
         LOG_ERROR("Failed to find 'id' field in JSON");
-        bson_destroy(update);
+        bson_destroy(doc);
         return EXIT_FAILURE;
     }
 
-    // Convert the id string to an OID
-    bson_oid_t oid;
-    if (!bson_oid_is_valid(id_str, strlen(id_str))) {
-        LOG_ERROR("Invalid ID");
-        bson_destroy(update);
-        return EXIT_FAILURE;
-    }
-    bson_oid_init_from_string(&oid, id_str);
-    bson_t* query = BCON_NEW("_id", BCON_OID(&oid));
+    bson_t* query = bson_new();
+    BSON_APPEND_VALUE(query, "id", bson_iter_value(&iter));
 
-    if (!db_update("pets", query, update)) {
+    bson_t* update = bson_new();
+    BSON_APPEND_DOCUMENT(update, "$set", doc);
+
+    bool success = db_update("pets", query, update);
+    if (!success) {
         LOG_ERROR("Failed to update pet");
-        bson_destroy(query);
-        bson_destroy(update);
-        return EXIT_FAILURE;
     }
 
-    bson_destroy(query);
     bson_destroy(update);
-    return EXIT_SUCCESS;
+    bson_destroy(query);
+    bson_destroy(doc);
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /**
  * @brief Deletes a pet with the given ID.
- *
- * @param id The ID of the pet to delete.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
-int delete_pet_by_id(const char* id) {
+int handle_delete_pet(const char* id) {
     LOG_INFO("delete pet with the id: %s", id);
-    // delete pet by id
-    bson_oid_t oid;
-    if (!bson_oid_is_valid(id, strlen(id))) {
-        LOG_ERROR("Invalid ID");
-        return EXIT_FAILURE;
+
+    // Try to parse as integer first, fall back to string
+    char* endptr;
+    long id_val = strtol(id, &endptr, 10);
+
+    bson_t* query = bson_new();
+    if (*endptr == '\0') {
+        // ID is numeric
+        BSON_APPEND_INT64(query, "id", id_val);
+    } else {
+        // ID is a string
+        BSON_APPEND_UTF8(query, "id", id);
     }
-    bson_oid_init_from_string(&oid, id);
-    bson_t* query = BCON_NEW("_id", BCON_OID(&oid));
-    if (!db_delete("pets", query)) {
+
+    bool success = db_delete("pets", query);
+    if (!success) {
         LOG_ERROR("Failed to delete pet");
-        bson_destroy(query);
-        return EXIT_FAILURE;
     }
+
     bson_destroy(query);
-    return EXIT_SUCCESS;
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /**
- * @brief Finds pets by the given tags.
- *
- * @param tags The tags to search for.
- * @return char* A JSON string containing the list of pets that match the tags: "tag01,tag02".
- *         The caller is responsible for freeing the returned string.
+ * @brief Finds pets by the given tags (comma-separated).
  */
-char* find_pets_by_tags(const char* tags) {
+char* handle_get_pet_by_tags(const char* tags) {
     if (tags == NULL || tags[0] == '\0') {
         LOG_ERROR("No tags provided");
         return strdup("[]");
     }
     LOG_INFO("find pets with the given tags: %s", tags);
+
+    // Build query: { "tags.name": { "$in": ["tag1", "tag2"] } }
+    bson_t* query = bson_new();
+    bson_t in_doc, in_array;
+    BSON_APPEND_DOCUMENT_BEGIN(query, "tags.name", &in_doc);
+    BSON_APPEND_ARRAY_BEGIN(&in_doc, "$in", &in_array);
+
     char* tags_copy = strdup(tags);
-    if (tags_copy == NULL) {
+    if (!tags_copy) {
         LOG_ERROR("Memory allocation failed");
+        bson_destroy(query);
         return NULL;
     }
-    bson_t* query = bson_new();
 
-    // get all tags splits by in threadsafe mode
-    char* saveToken;
-    char* token = strtok_r(tags_copy, ",", &saveToken);
-
-    // Build the query: { tags: { $elemMatch: { name: "tag01" } }, tags: { $elemMatch: { name: "tag02" } } }    
-    // Add each tag to the query array
+    int index = 0;
+    char key[16];
+    char* saveptr;
+    char* token = strtok_r(tags_copy, ",", &saveptr);
     while (token != NULL) {
-        bson_t* tag_elem = bson_new();
-        bson_t* tag_doc = bson_new();
-
-        BSON_APPEND_UTF8(tag_doc, "name", token);
-        BSON_APPEND_DOCUMENT(tag_elem, "$elemMatch", tag_doc);
-        // Construct the final query
-        BSON_APPEND_DOCUMENT(query, "tags", tag_elem);
-
-        bson_destroy(tag_doc);
-        bson_destroy(tag_elem);
-        token = strtok_r(NULL, ",", &saveToken);
+        snprintf(key, sizeof(key), "%d", index++);
+        BSON_APPEND_UTF8(&in_array, key, token);
+        token = strtok_r(NULL, ",", &saveptr);
     }
+    free(tags_copy);
 
-    char* query_json = bson_as_json(query, NULL);
-    LOG_INFO("find_pets_by_tags Query : %s", query_json);
+    bson_append_array_end(&in_doc, &in_array);
+    bson_append_document_end(query, &in_doc);
+
+    char* query_json = bson_to_json(query);
+    LOG_INFO("find_pets_by_tags Query: %s", query_json);
     bson_free(query_json);
 
-    // Execute Mongo query
+    // Execute query
     bson_t* result = db_find("pets", query);
     char* json = NULL;
     if (result) {
-        json = bson_as_relaxed_extended_json(result, NULL);
-        //LOG_INFO("Pets found: %s", json);
+        json = bson_to_json(result);
         bson_destroy(result);
-    }
-    else {
+    } else {
         LOG_ERROR("No pets found with the given tags");
         json = strdup("[]");
     }
 
     bson_destroy(query);
-    free(tags_copy);
     return json;
 }
 
 /**
- * @brief Finds pets by the given statuses.
- *
- * @param statuses The statuses to search for.
- * @return char* A JSON string containing the list of pets that match the list of status: "available,sold".
- *         The caller is responsible for freeing the returned string.
+ * @brief Finds pets by the given statuses (comma-separated).
  */
-char* find_pets_by_state(const char* statuses) {
+char* handle_get_pet_by_state(const char* statuses) {
     if (statuses == NULL || statuses[0] == '\0') {
         LOG_ERROR("No statuses provided");
         return strdup("[]");
     }
     LOG_INFO("find_pets_by_state with the given statuses: %s", statuses);
 
+    // Build query: { "status": { "$in": ["available", "sold"] } }
+    bson_t* query = bson_new();
+    bson_t in_doc, in_array;
+    BSON_APPEND_DOCUMENT_BEGIN(query, "status", &in_doc);
+    BSON_APPEND_ARRAY_BEGIN(&in_doc, "$in", &in_array);
+
     char* statuses_copy = strdup(statuses);
-    if (statuses_copy == NULL) {
+    if (!statuses_copy) {
         LOG_ERROR("Memory allocation failed");
+        bson_destroy(query);
         return NULL;
     }
 
-    // Initialize BSON query
-    bson_t* query = bson_new();
-    bson_t* status_array = bson_new();
-    bson_t child;
-
-    // Split the statuses string by comma using strtok_r
-    // build query : db.pets.find({status: { $in: ["available", "sold"]}})
-    char* saveptr;
-    char* status = strtok_r(statuses_copy, ",", &saveptr);
-
-    BSON_APPEND_ARRAY_BEGIN(status_array, "$in", &child);
     int index = 0;
     char key[16];
-
+    char* saveptr;
+    char* status = strtok_r(statuses_copy, ",", &saveptr);
     while (status != NULL) {
         snprintf(key, sizeof(key), "%d", index++);
-        BSON_APPEND_UTF8(&child, key, status);
+        BSON_APPEND_UTF8(&in_array, key, status);
         status = strtok_r(NULL, ",", &saveptr);
     }
-    bson_append_array_end(status_array, &child);
+    free(statuses_copy);
 
-    BSON_APPEND_DOCUMENT(query, "status", status_array);
+    bson_append_array_end(&in_doc, &in_array);
+    bson_append_document_end(query, &in_doc);
 
-    char* query_json = bson_as_json(query, NULL);
+    char* query_json = bson_to_json(query);
     LOG_INFO("find_pets_by_state Query: %s", query_json);
     bson_free(query_json);
+
     // Execute query
     bson_t* result = db_find("pets", query);
     char* json = NULL;
     if (result) {
-        json = bson_as_relaxed_extended_json(result, NULL);
-        // LOG_INFO("Pets found: %s", json);
+        json = bson_to_json(result);
         bson_destroy(result);
-    }
-    else {
+    } else {
         LOG_ERROR("No pets found in the given state");
         json = strdup("[]");
     }
 
-    bson_destroy(status_array);
     bson_destroy(query);
-    free(statuses_copy);
     return json;
 }
 
 /**
  * @brief Finds a pet by the given ID.
- *
- * @param id The ID of the pet to search for.
- * @return char* A JSON string containing the pet details.
- *         The caller is responsible for freeing the returned string.
  */
-char* find_pet_by_id(const char* id) {
+char* handle_get_pet_by_id(const char* id) {
     LOG_INFO("find_pet_by_id with the given id: %s", id);
 
-    // find pet by id
-    bson_oid_t oid;
-    if (!bson_oid_is_valid(id, strlen(id))) {
-        LOG_ERROR("Invalid ID");
-        return NULL;
-    }
-    bson_oid_init_from_string(&oid, id);
-    bson_t* query = BCON_NEW("_id", BCON_OID(&oid));
+    // Try to parse ID as integer
+    char* endptr;
+    long id_val = strtol(id, &endptr, 10);
 
-    bson_t* result = db_find("pets", query);
+    bson_t* query = bson_new();
+    if (*endptr == '\0') {
+        BSON_APPEND_INT64(query, "id", id_val);
+    } else {
+        BSON_APPEND_UTF8(query, "id", id);
+    }
+
+    bson_t* result = db_find_one("pets", query);
     char* json = NULL;
     if (result) {
-        json = bson_as_relaxed_extended_json(result, NULL);
-        LOG_INFO("Pet found: %s", json);
+        json = bson_to_json(result);
         bson_destroy(result);
-    }
-    else {
+    } else {
         LOG_ERROR("No pet found with the given ID");
-        json = strdup("{\"error\":\"Failed to find pets by id\"}");
+        json = strdup("{\"error\":\"Pet not found\"}");
     }
 
     bson_destroy(query);
     return json;
 }
 
-// User methods
+// ========================
+// User handlers
+// ========================
+
 /**
  * @brief Creates a new user from the given JSON payload.
- *
- * @param json_payload The JSON payload containing the user details.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
-int create_user(const char* json_payload) {
-    LOG_INFO("create_user");
-    bson_error_t error;
-    bson_t* doc = bson_new_from_json((const uint8_t*)json_payload, -1, &error);
-    if (!doc) {
-        LOG_ERROR("Failed to parse JSON: %s", error.message);
-        return EXIT_FAILURE;
-    }
-    if (!db_insert("users", doc)) {
+int handle_create_user(const char* json_payload) {
+    LOG_INFO("handle_create_user");
+    bson_t* doc = json_to_bson(json_payload);
+    if (!doc) return EXIT_FAILURE;
+
+    bool success = db_insert("users", doc);
+    if (!success) {
         LOG_ERROR("Failed to insert user");
-        bson_destroy(doc);
-        return EXIT_FAILURE;
     }
+
     bson_destroy(doc);
-    return EXIT_SUCCESS;
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /**
  * @brief Updates an existing user with the given JSON payload.
- *
- * @param json_payload The JSON payload containing the updated user details.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
-int update_user(const char* json_payload) {
-    LOG_INFO("update_user");
-    bson_error_t error;
-    bson_t* update = bson_new_from_json((const uint8_t*)json_payload, -1, &error);
-    if (!update) {
-        LOG_ERROR("Failed to parse JSON: %s", error.message);
-        return EXIT_FAILURE;
-    }
-    // Read the JSON payload and extract the id field
+int handle_update_user(const char* json_payload) {
+    LOG_INFO("handle_update_user");
+    bson_t* doc = json_to_bson(json_payload);
+    if (!doc) return EXIT_FAILURE;
+
     bson_iter_t iter;
-    bson_oid_t oid;
-    if (bson_iter_init_find(&iter, update, "id") && BSON_ITER_HOLDS_OID(&iter)) {
-        bson_oid_copy(bson_iter_oid(&iter), &oid);
-    }
-    else {
+    if (!bson_iter_init_find(&iter, doc, "id")) {
         LOG_ERROR("Failed to find 'id' field in JSON");
-        bson_destroy(update);
+        bson_destroy(doc);
         return EXIT_FAILURE;
     }
-    // Convert the oid to a string
-    char id[25];
-    bson_oid_to_string(&oid, id);
-    bson_t* query = BCON_NEW("_id", BCON_OID(&oid));
-    if (!db_update("users", query, update)) {
+
+    bson_t* query = bson_new();
+    BSON_APPEND_VALUE(query, "id", bson_iter_value(&iter));
+
+    bson_t* update = bson_new();
+    BSON_APPEND_DOCUMENT(update, "$set", doc);
+
+    bool success = db_update("users", query, update);
+    if (!success) {
         LOG_ERROR("Failed to update user");
-        bson_destroy(query);
-        bson_destroy(update);
-        return EXIT_FAILURE;
     }
-    bson_destroy(query);
+
     bson_destroy(update);
-    return EXIT_SUCCESS;
-}
-
-/**
- * @brief Deletes a user with the given ID.
- *
- * @param id The ID of the user to delete.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
- */
-int delete_user_by_id(const char* id) {
-    LOG_INFO("delete user with the id: %s", id);
-    // delete user by id
-    bson_oid_t oid;
-    if (!bson_oid_is_valid(id, strlen(id))) {
-        LOG_ERROR("Invalid ID");
-        return EXIT_FAILURE;
-    }
-    bson_oid_init_from_string(&oid, id);
-    bson_t* query = BCON_NEW("_id", BCON_OID(&oid));
-    if (!db_delete("users", query)) {
-        LOG_ERROR("Failed to delete user");
-        bson_destroy(query);
-        return EXIT_FAILURE;
-    }
     bson_destroy(query);
-    return EXIT_SUCCESS;
+    bson_destroy(doc);
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /**
- * @brief Finds users by the given username.
- *
- * @param username The username to search for.
- * @return char* A JSON string containing the list of users that match the username.
- *         The caller is responsible for freeing the returned string.
+ * @brief Deletes a user with the given ID (or username used as ID).
  */
-char* find_user_by_username(const char* username) {
-    LOG_INFO("find_users_by_username with the given username: %s", username);
-    // find users by username
-    bson_t* query = BCON_NEW("username", BCON_UTF8(username));
-    bson_t* result = db_find("users", query);
+int handle_delete_user(const char* id) {
+    LOG_INFO("delete user with the id: %s", id);
+
+    char* endptr;
+    long id_val = strtol(id, &endptr, 10);
+
+    bson_t* query = bson_new();
+    if (*endptr == '\0') {
+        BSON_APPEND_INT64(query, "id", id_val);
+    } else {
+        // If not a number, treat as username
+        BSON_APPEND_UTF8(query, "username", id);
+    }
+
+    bool success = db_delete("users", query);
+    if (!success) {
+        LOG_ERROR("Failed to delete user");
+    }
+
+    bson_destroy(query);
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+/**
+ * @brief Finds a user by the given username.
+ */
+char* handle_get_user_by_username(const char* username) {
+    LOG_INFO("find_user_by_username with the given username: %s", username);
+
+    bson_t* query = bson_new();
+    BSON_APPEND_UTF8(query, "username", username);
+
+    bson_t* result = db_find_one("users", query);
     char* json = NULL;
     if (result) {
-        json = bson_as_relaxed_extended_json(result, NULL);
-        // LOG_INFO("Users found: %s", json);
+        json = bson_to_json(result);
         bson_destroy(result);
+    } else {
+        LOG_ERROR("No user found with the given username");
+        json = strdup("{\"error\":\"User not found\"}");
     }
-    else {
-        LOG_ERROR("No users found with the given username");
-        json = strdup("[]");
-    }
+
     bson_destroy(query);
     return json;
 }
 
 /**
- * @brief Handles the GET /user/logout route.
- *
- * @param username The username of the user to logout.
- * @return char* A JSON string containing the result of the logout operation.
- *         The caller is responsible for freeing the returned string.
+ * @brief Handles the POST /user/logout route.
  */
 char* handle_post_user_logout(const char* username) {
-    LOG_INFO("handle_get_user_logout with the given username: %s", username);
-    // handle user logout
-    char* result = NULL;
-    if (username != NULL) {
-        result = strdup("{\"message\":\"User logged out successfully\"}");
-    }
-    else {
-        result = strdup("{\"error\":\"Failed to logout user\"}");
-    }
+    LOG_INFO("handle_post_user_logout with the given username: %s",
+             username ? username : "(null)");
+
+    char* result = username
+        ? strdup("{\"message\":\"User logged out successfully\"}")
+        : strdup("{\"error\":\"Failed to logout user\"}");
     return result;
 }
 
 /**
  * @brief Handles the POST /user/login route.
- *
- * @param json_payload The JSON payload containing the user login details.
- * @return int Returns EXIT_SUCCESS on success, EXIT_FAILURE on failure.
+ * Validates username/password from JSON payload using cJSON.
  */
 int handle_post_user_login(const char* json_payload) {
     LOG_INFO("handle_post_user_login");
-    bson_error_t error;
-    bson_t doc;
-    if (!bson_init_from_json(&doc, json_payload, -1, &error)) {
-        LOG_ERROR("Failed to parse JSON: %s", error.message);
+
+    cJSON* doc = cJSON_Parse(json_payload);
+    if (!doc) {
+        LOG_ERROR("Failed to parse login JSON");
         return EXIT_FAILURE;
     }
-    // Check if the username and password fields are present
-    if (!bson_has_field(&doc, "username") || !bson_has_field(&doc, "password")) {
+
+    cJSON* username_item = cJSON_GetObjectItem(doc, "username");
+    cJSON* password_item = cJSON_GetObjectItem(doc, "password");
+
+    if (!cJSON_IsString(username_item) || !cJSON_IsString(password_item)) {
         LOG_ERROR("Missing 'username' or 'password' field in JSON");
-        bson_destroy(&doc);
+        cJSON_Delete(doc);
         return EXIT_FAILURE;
     }
 
-    // Extract and validate username and password fields
-    bson_iter_t iter;
-    const char* username = NULL;
-    const char* password = NULL;
+    const char* username = username_item->valuestring;
+    const char* password = password_item->valuestring;
 
-    if (bson_iter_init_find(&iter, &doc, "username") && BSON_ITER_HOLDS_UTF8(&iter)) {
-        username = bson_iter_utf8(&iter, NULL);
-    }
-    if (bson_iter_init_find(&iter, &doc, "password") && BSON_ITER_HOLDS_UTF8(&iter)) {
-        password = bson_iter_utf8(&iter, NULL);
-    }
-
+    // Simple hardcoded validation (replace with DB lookup in production)
+    int result = EXIT_FAILURE;
     if (username && password &&
         strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {
-        bson_destroy(&doc);
-        return EXIT_SUCCESS;
+        result = EXIT_SUCCESS;
     }
-    LOG_ERROR("Invalid username or password");
-    bson_destroy(&doc);
-    return EXIT_FAILURE;
+
+    cJSON_Delete(doc);
+    return result;
 }
 
 /**
  * @brief Finds all users.
- *
- * @return char* A JSON string containing the list of users.
- *         The caller is responsible for freeing the returned string.
  */
-char* find_all_users() {
+char* handle_get_all_users(void) {
     LOG_INFO("find_all_users");
-    // find all users
-    bson_t* query = bson_new();
-    bson_t* result = db_find("users", query);
+
+    bson_t* result = db_find_all("users");
     char* json = NULL;
     if (result) {
-        json = bson_as_relaxed_extended_json(result, NULL);
-        // LOG_INFO("Users found: %s", json);
+        json = bson_to_json(result);
         bson_destroy(result);
-    }
-    else {
+    } else {
         LOG_ERROR("No users found");
         json = strdup("[]");
     }
-    bson_destroy(query);
+
     return json;
 }
 
 /**
  * @brief Finds a user by the given ID.
- *
- * @param id The ID of the user to search for.
- * @return char* A JSON string containing the user details.
- *         The caller is responsible for freeing the returned string.
  */
-char* find_user_by_id(const char* id) {
-    LOG_INFO("find_user_by_id with the given id : %s", id);
-    // find user by id
-    bson_oid_t oid;
-    if (!bson_oid_is_valid(id, strlen(id))) {
-        LOG_ERROR("Invalid ID");
-        return NULL;
+char* handle_get_user_by_id(const char* id) {
+    LOG_INFO("find_user_by_id with the given id: %s", id);
+
+    char* endptr;
+    long id_val = strtol(id, &endptr, 10);
+
+    bson_t* query = bson_new();
+    if (*endptr == '\0') {
+        BSON_APPEND_INT64(query, "id", id_val);
+    } else {
+        BSON_APPEND_UTF8(query, "id", id);
     }
-    bson_oid_init_from_string(&oid, id);
-    bson_t* query = BCON_NEW("_id", BCON_OID(&oid));
-    bson_t* result = db_find("users", query);
+
+    bson_t* result = db_find_one("users", query);
     char* json = NULL;
     if (result) {
-        json = bson_as_relaxed_extended_json(result, NULL);
-        // LOG_INFO("User found: %s", json);
+        json = bson_to_json(result);
         bson_destroy(result);
-    }
-    else {
+    } else {
         LOG_ERROR("No user found with the given ID");
-        json = strdup("{\"error\":\"Failed to find user by id\"}");
+        json = strdup("{\"error\":\"User not found\"}");
     }
+
     bson_destroy(query);
     return json;
 }

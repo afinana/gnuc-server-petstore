@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc6-dev \
     make \
     libmicrohttpd-dev \
-    libbson-dev \
-    libmongoc-dev \
+    libhiredis-dev \
+    libcjson-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source files

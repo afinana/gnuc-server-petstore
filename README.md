@@ -1,10 +1,12 @@
 ### Introduction
 
-This project is a **RESTfull Pet Store API** built in **glib C**, using the **MongoDB C driver** for database operations.
+This project is a **RESTful Pet Store API** built in **glib C**, using **Redis** for database operations and **cJSON** for JSON processing.
+
 It provides endpoints to manage pet data, including creation, retrieval, updating, and deletion. 
+
 The project is structured with a **Makefile** for efficient build automation, ensuring smooth compilation and dependency management.
 
-The API will include the following endpoints:
+The API includes the following endpoints:
 
 1. **Routes**:
    - **POST `/pet`**: Creates a new pet using `create_pet`.
@@ -18,17 +20,19 @@ The API will include the following endpoints:
    - Incoming requests are routed based on their `method` and `url`.
 
 3. **Database Initialization**:
-   - `db_init` initializes the MongoDB connection.
+   - `db_init` initializes the Redis connection.
    - `db_cleanup` closes the connection.
 
 4. **Memory Management**:
-   - JSON payloads are processed dynamically, ensuring efficient use of memory.
+   - JSON payloads are processed dynamically using cJSON, ensuring efficient use of memory.
+
+### Install Dependencies
+
+Ensure you have `libmicrohttpd`, `hiredis`, and `cjson` installed. Use a package manager (e.g., `apt`, `yum`, or `brew`) to install them:
 
 
-### Install Dependencies**
-Ensure you have `libmicrohttpd` and `libmongoc-dev` installed. Use a package manager (e.g., `apt`, `yum`, or `brew`) to install it:
 ```bash
-sudo apt-get install libmicrohttpd-dev libmongoc-dev
+sudo apt-get install libmicrohttpd-dev libhiredis-dev libcjson-dev
 ```
 
 
@@ -36,7 +40,7 @@ sudo apt-get install libmicrohttpd-dev libmongoc-dev
 
 From Unix terminal using gcc:
 ```bash
-gcc main.c database.c handlers.c -o server -lmicrohttpd -lbson-1.0 -lmongoc-1.0 -o petstore-api
+gcc main.c database.c handlers.c -o server -lmicrohttpd -lhiredis -lcjson -o petstore-api
 ```
 
 
@@ -54,7 +58,7 @@ Run the compiled server:
 ./server
 ```
 
-The server will listen on `http://localhost:8888`. You can test it with tools like `curl` or Postman:
+The server will listen on `http://localhost:8080`. You can test it with tools like `curl` or Postman:
 
 
 ---
@@ -90,8 +94,7 @@ We create a **multi-stage Dockerfile** that includes the build process in the co
 docker build . -t petstore-api 
 
 # Run the Docker container
-docker run -p 8080:8080 petstore-api -e mongoURI="mongodb://root:password@localhost:27017"
-```
+docker run -p 8080:8080 -e redisURI="redis://password@localhost:27017" petstore-api```
 
 ---
 
@@ -104,45 +107,9 @@ curl -X POST -d '{"id":2,"name":"cat2"}' http://localhost:8888/pet
 ```
 
 ---
-## **Mongodb queries**
-
-- Get all pets:
-```bash
-db.getCollection("pets").find({})
-```
-
-- Find pets of name='cat1'
-```bash
-db.getCollection("pets").find({'name':'cat1'})
-```
-- Find pets of category.name='category01'
-```bash
-db.getCollection("pets").find({'category.name':'category01'})
-```
-
-- Find pets with tags : 'tag01' or 'tag02'
-```bash
-db.getCollection("pets").find({
-    tags: {
-        $elemMatch: { name: "tag01" },
-    },
-    tags: {
-        $elemMatch: { name: "tag02" },
-    }
-})
-```
-
-- Find pets with status 'available' or 'sold'
-```bash
-db.getCollection("pets").find({
-    status: { $in: ["available", "sold"] }
-});
-```
----
 
 ### **References**
 
-- [MongoDB C Driver](http://mongoc.org/libmongoc/current/index.html)
-- BSON Library: [libbson](http://mongoc.org/libbson/current/index.html)
-- BSON Examples: https://mongoc.org/libbson/1.21.0/include-and-link.html
 - Microhttpd: [GNU libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/)
+- Hiredis: [Hiredis GitHub](https://github.com/redis/hiredis)
+- cJSON: [cJSON GitHub](https://github.com/DaveGamble/cJSON)

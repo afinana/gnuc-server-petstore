@@ -1,15 +1,16 @@
 #include <stdbool.h>
-#include <mongoc/mongoc.h>
-#include <bson/bson.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "database.h"
 #include "log-utils.h"
 
 // Thread-safe connection pool
 static mongoc_client_pool_t* pool = NULL;
 
-// Initializes the MongoDB connection pool
+/**
+ * @brief Initializes the MongoDB connection pool.
+ */
 void db_init(const char* uri) {
     mongoc_init();
 
@@ -29,17 +30,24 @@ void db_init(const char* uri) {
 
     mongoc_client_pool_max_size(pool, 10);
     mongoc_uri_destroy(mongoc_uri);
+
+    LOG_INFO("MongoDB connection pool initialized");
 }
 
-// Cleans up the connection pool
+/**
+ * @brief Cleans up the MongoDB connection pool.
+ */
 void db_cleanup() {
     if (pool) {
         mongoc_client_pool_destroy(pool);
+        pool = NULL;
     }
     mongoc_cleanup();
 }
 
-// Inserts a document into the specified collection
+/**
+ * @brief Inserts a document into the specified collection.
+ */
 bool db_insert(const char* collection_name, const bson_t* doc) {
     bson_error_t error;
     mongoc_client_t* client = mongoc_client_pool_pop(pool);
@@ -55,7 +63,9 @@ bool db_insert(const char* collection_name, const bson_t* doc) {
     return success;
 }
 
-// Updates a document in the specified collection
+/**
+ * @brief Updates a document in the specified collection.
+ */
 bool db_update(const char* collection_name, const bson_t* query, const bson_t* update) {
     bson_error_t error;
     mongoc_client_t* client = mongoc_client_pool_pop(pool);
@@ -71,7 +81,9 @@ bool db_update(const char* collection_name, const bson_t* query, const bson_t* u
     return success;
 }
 
-// Deletes a document from the specified collection
+/**
+ * @brief Deletes a document from the specified collection.
+ */
 bool db_delete(const char* collection_name, const bson_t* query) {
     bson_error_t error;
     bson_t reply;
@@ -89,7 +101,9 @@ bool db_delete(const char* collection_name, const bson_t* query) {
     return success;
 }
 
-// Finds a single document matching the query
+/**
+ * @brief Finds a single document matching the query.
+ */
 bson_t* db_find_one(const char* collection_name, const bson_t* query) {
     bson_t* result = NULL;
     mongoc_client_t* client = mongoc_client_pool_pop(pool);
@@ -107,7 +121,9 @@ bson_t* db_find_one(const char* collection_name, const bson_t* query) {
     return result;
 }
 
-// Finds all documents matching the query
+/**
+ * @brief Finds all documents matching the query, returned as a BSON array wrapper.
+ */
 bson_t* db_find(const char* collection_name, const bson_t* query) {
     bson_t* result = bson_new();
     bson_t child;
@@ -115,7 +131,7 @@ bson_t* db_find(const char* collection_name, const bson_t* query) {
     mongoc_collection_t* collection = mongoc_client_get_collection(client, "petstore", collection_name);
     mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
 
-    BSON_APPEND_ARRAY_BEGIN(result, "collection", &child);
+    BSON_APPEND_ARRAY_BEGIN(result, "results", &child);
     int index = 0;
     char key[16];
     const bson_t* doc;
@@ -127,6 +143,7 @@ bson_t* db_find(const char* collection_name, const bson_t* query) {
     bson_append_array_end(result, &child);
 
     if (mongoc_cursor_error(cursor, NULL)) {
+        LOG_ERROR("Cursor error during find");
         bson_destroy(result);
         result = NULL;
     }
@@ -134,5 +151,15 @@ bson_t* db_find(const char* collection_name, const bson_t* query) {
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(collection);
     mongoc_client_pool_push(pool, client);
+    return result;
+}
+
+/**
+ * @brief Finds all documents in the specified collection (no filter).
+ */
+bson_t* db_find_all(const char* collection_name) {
+    bson_t* empty_query = bson_new();
+    bson_t* result = db_find(collection_name, empty_query);
+    bson_destroy(empty_query);
     return result;
 }
