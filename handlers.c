@@ -398,7 +398,11 @@ int handle_post_user_login(const char* json_payload) {
     const char* username = username_item->valuestring;
     const char* password = password_item->valuestring;
 
-    // Simple hardcoded validation (replace with DB lookup in production)
+    /* TODO: SECURITY — hardcoded credentials must be replaced with a DB lookup.
+     * Replace this block with a mongoc query against the "users" collection
+     * that matches the username and validates the (hashed) password.
+     * Never store or compare plaintext passwords in production code.
+     */
     int result = EXIT_FAILURE;
     if (username && password &&
         strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {
