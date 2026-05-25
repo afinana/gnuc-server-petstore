@@ -1,12 +1,14 @@
 CC       = cc
 
-# Dynamically resolve MongoDB C Driver flags & libraries using pkg-config
-MONGOC_CFLAGS = $(shell pkg-config --cflags libmongoc-1.0 libbson-1.0)
-MONGOC_LIBS   = $(shell pkg-config --libs libmongoc-1.0 libbson-1.0)
+# Dynamically resolve hiredis and libbson flags using pkg-config
+HIREDIS_CFLAGS = $(shell pkg-config --cflags hiredis)
+HIREDIS_LIBS   = $(shell pkg-config --libs hiredis)
+BSON_CFLAGS    = $(shell pkg-config --cflags libbson-1.0)
+BSON_LIBS      = $(shell pkg-config --libs libbson-1.0)
 
-CFLAGS   = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O2 $(MONGOC_CFLAGS)
-CFLAGS_DEBUG = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O0 -DDEBUG $(MONGOC_CFLAGS)
-LDFLAGS  = $(MONGOC_LIBS) -lmicrohttpd -lcjson
+CFLAGS   = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O2 $(HIREDIS_CFLAGS) $(BSON_CFLAGS)
+CFLAGS_DEBUG = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O0 -DDEBUG $(HIREDIS_CFLAGS) $(BSON_CFLAGS)
+LDFLAGS  = $(HIREDIS_LIBS) $(BSON_LIBS) -lmicrohttpd -lcjson -lpthread
 
 # Main application sources
 SRC      = main.c handlers.c database.c
@@ -37,7 +39,8 @@ TEST_CFLAGS = $(CFLAGS) \
 
 # Suppress Wpedantic / Wformat for vendored Unity code
 UNITY_CFLAGS = -Wall -g -O2 \
-               $(MONGOC_CFLAGS) \
+               $(HIREDIS_CFLAGS) \
+               $(BSON_CFLAGS) \
                -I$(VENDOR_DIR) \
                -I$(STUBS_DIR) \
                -I.

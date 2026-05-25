@@ -3,14 +3,15 @@ FROM debian:bookworm AS builder
 
 WORKDIR /build
 
-# Install build toolchain and MongoDB C driver dev libraries
+# Install build toolchain, hiredis, libbson, and other dev libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \
     make \
     pkg-config \
     libmicrohttpd-dev \
-    libmongoc-dev \
+    libhiredis-dev \
+    libbson-dev \
     libcjson-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -19,15 +20,16 @@ COPY *.c *.h Makefile ./
 
 # Build using the Makefile
 RUN make all \
-    "CFLAGS=-Wall -Wextra -g -O2 $(pkg-config --cflags libmongoc-1.0)" \
-    "LDFLAGS=$(pkg-config --libs libmongoc-1.0) -lmicrohttpd -lcjson"
+    "CFLAGS=-Wall -Wextra -g -O2 $(pkg-config --cflags hiredis libbson-1.0)" \
+    "LDFLAGS=$(pkg-config --libs hiredis libbson-1.0) -lmicrohttpd -lcjson -lpthread"
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmicrohttpd12 \
-    libmongoc-1.0-0 \
+    libhiredis0.14 \
+    libbson-1.0-0 \
     libcjson1 \
     curl \
     && rm -rf /var/lib/apt/lists/*

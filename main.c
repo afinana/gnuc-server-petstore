@@ -339,11 +339,11 @@ int main(void) {
     const char* env_port = getenv("port");
     int listen_port = (env_port != NULL) ? atoi(env_port) : 8080;
 
-    const char* db_uri = getenv("mongoURI");
+    const char* db_uri = getenv("REDIS_URL");
     if (db_uri == NULL) {
-        db_uri = "mongodb://root@127.0.0.1:27017/admin?retryWrites=true&loadBalanced=false&connectTimeoutMS=10000&authSource=admin&authMechanism=SCRAM-SHA-256";
+        db_uri = "redis://:middlelandPassword01@127.0.0.1:6379/";
     }
-    LOG_INFO("mongoURI: %s", db_uri);
+    LOG_INFO("REDIS_URL: %s", db_uri);
 
     db_init(db_uri);
 

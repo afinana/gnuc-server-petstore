@@ -27,7 +27,8 @@ jobs:
             make \
             pkg-config \
             libmicrohttpd-dev \
-            libmongoc-dev \
+            libhiredis-dev \
+            libbson-dev \
             libcjson-dev
 
       # Build the main application

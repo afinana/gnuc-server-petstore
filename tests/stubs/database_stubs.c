@@ -18,7 +18,7 @@
 #include "database_stubs.h"
 #include <string.h>
 #include <stdlib.h>
-#include <mongoc/mongoc.h>
+#include <bson/bson.h>
 
 /* -------------------------------------------------------------------------
  * Stub state variables (definitions)
