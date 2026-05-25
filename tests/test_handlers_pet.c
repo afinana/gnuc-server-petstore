@@ -15,6 +15,7 @@
  *  - handle_get_pet_by_id
  *  - handle_get_pet_by_tags
  *  - handle_get_pet_by_state
+ *  - handle_get_all_pets
  */
 #include "../vendor/unity/unity.h"
 #include "../stubs/database_stubs.h"
@@ -289,6 +290,32 @@ static void test_get_pet_by_state_no_results(void) {
 }
 
 /* =========================================================================
+ * handle_get_all_pets
+ * ====================================================================== */
+
+static void test_get_all_pets_with_results(void) {
+    stub_db_find_json = "{\"id\":1,\"name\":\"Buddy\"}";
+
+    char* result = handle_get_all_pets();
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_call_count);
+
+    free(result);
+}
+
+static void test_get_all_pets_empty(void) {
+    stub_db_find_json = NULL;
+
+    char* result = handle_get_all_pets();
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_call_count);
+
+    free(result);
+}
+
+/* =========================================================================
  * Test runner — called from test_main.c
  * ====================================================================== */
 
@@ -328,4 +355,8 @@ void run_pet_handler_tests(void) {
     RUN_TEST(test_get_pet_by_state_single_status);
     RUN_TEST(test_get_pet_by_state_multiple_statuses);
     RUN_TEST(test_get_pet_by_state_no_results);
+
+    /* handle_get_all_pets */
+    RUN_TEST(test_get_all_pets_with_results);
+    RUN_TEST(test_get_all_pets_empty);
 }

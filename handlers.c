@@ -258,6 +258,25 @@ char* handle_get_pet_by_id(const char* id) {
     return json;
 }
 
+/**
+ * @brief Finds all pets.
+ */
+char* handle_get_all_pets(void) {
+    LOG_INFO("find_all_pets");
+
+    bson_t* result = db_find_all("pets");
+    char* json = NULL;
+    if (result) {
+        json = bson_to_json(result);
+        bson_destroy(result);
+    } else {
+        LOG_ERROR("No pets found");
+        json = strdup("[]");
+    }
+
+    return json;
+}
+
 // ========================
 // User handlers
 // ========================

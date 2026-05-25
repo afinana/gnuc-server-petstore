@@ -13,6 +13,7 @@
  *  - handle_update_user
  *  - handle_delete_user
  *  - handle_get_user_by_username
+ *  - handle_get_user_by_id
  *  - handle_get_all_users
  *  - handle_post_user_login
  *  - handle_post_user_logout
@@ -144,6 +145,35 @@ static void test_get_user_by_username_not_found(void) {
     stub_db_find_one_json = NULL;
 
     char* result = handle_get_user_by_username("nobody");
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_NOT_NULL(strstr(result, "error"));
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_one_call_count);
+
+    free(result);
+}
+
+/* =========================================================================
+ * handle_get_user_by_id
+ * ====================================================================== */
+
+static void test_get_user_by_id_found(void) {
+    stub_db_find_one_json =
+        "{\"id\":4,\"username\":\"user04@gmail.com\",\"email\":\"user04.finana@gmail.com\"}";
+
+    char* result = handle_get_user_by_id("4");
+
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_NULL(strstr(result, "\"error\""));
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_one_call_count);
+
+    free(result);
+}
+
+static void test_get_user_by_id_not_found(void) {
+    stub_db_find_one_json = NULL;
+
+    char* result = handle_get_user_by_id("999");
 
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_NOT_NULL(strstr(result, "error"));
@@ -288,6 +318,10 @@ void run_user_handler_tests(void) {
     /* handle_get_user_by_username */
     RUN_TEST(test_get_user_by_username_found);
     RUN_TEST(test_get_user_by_username_not_found);
+
+    /* handle_get_user_by_id */
+    RUN_TEST(test_get_user_by_id_found);
+    RUN_TEST(test_get_user_by_id_not_found);
 
     /* handle_get_all_users */
     RUN_TEST(test_get_all_users_with_results);
