@@ -37,7 +37,7 @@ void db_init(const char* uri) {
 /**
  * @brief Cleans up the MongoDB connection pool.
  */
-void db_cleanup() {
+void db_cleanup(void) {
     if (pool) {
         mongoc_client_pool_destroy(pool);
         pool = NULL;

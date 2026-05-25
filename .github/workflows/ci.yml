@@ -1,0 +1,52 @@
+name: CI — Build & Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build and Unit Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install build dependencies
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc \
+            make \
+            pkg-config \
+            libmicrohttpd-dev \
+            libmongoc-dev \
+            libcjson-dev
+
+      # Build the main application
+      - name: Build petstore-api
+        run: make all
+
+      # Build and run unit tests
+      - name: Run unit tests
+        run: make test
+
+      # Optional: Valgrind memory check (if available)
+      - name: Install Valgrind
+        run: sudo apt-get install -y --no-install-recommends valgrind
+
+      - name: Run tests under Valgrind
+        run: make valgrind
+
+      # Upload test binary as artifact on failure for debugging
+      - name: Upload test runner on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-runner-binary
+          path: tests/test_runner
+          retention-days: 7

@@ -53,6 +53,14 @@ char* handle_get_pet_by_state(const char* statuses);
  */
 char* handle_get_pet_by_id(const char* id);
 
+/**
+ * @brief Finds all pets.
+ *
+ * @return char* A JSON string containing the list of all pets.
+ *         The caller is responsible for freeing the returned string.
+ */
+char* handle_get_all_pets(void);
+
 // User handlers
 /**
  * @brief Creates a new user from the given JSON payload.

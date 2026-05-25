@@ -258,6 +258,28 @@ char* handle_get_pet_by_id(const char* id) {
     return json;
 }
 
+/**
+ * @brief Finds all pets.
+ */
+char* handle_get_all_pets(void) {
+    LOG_INFO("find_all_pets");
+
+    // Fetch all documents from the "pets" collection in the database
+    bson_t* result = db_find_all("pets");
+    char* json = NULL;
+    if (result) {
+        // Convert the BSON array result into relaxed JSON format string
+        json = bson_to_json(result);
+        bson_destroy(result);
+    } else {
+        LOG_ERROR("No pets found");
+        // Fall back to returning an empty JSON array if no pets are stored
+        json = strdup("[]");
+    }
+
+    return json;
+}
+
 // ========================
 // User handlers
 // ========================
@@ -398,7 +420,11 @@ int handle_post_user_login(const char* json_payload) {
     const char* username = username_item->valuestring;
     const char* password = password_item->valuestring;
 
-    // Simple hardcoded validation (replace with DB lookup in production)
+    /* TODO: SECURITY — hardcoded credentials must be replaced with a DB lookup.
+     * Replace this block with a mongoc query against the "users" collection
+     * that matches the username and validates the (hashed) password.
+     * Never store or compare plaintext passwords in production code.
+     */
     int result = EXIT_FAILURE;
     if (username && password &&
         strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {

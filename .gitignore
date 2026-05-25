@@ -1,5 +1,7 @@
 .vs/
 /obj
-/gnuc-server-petstore.vcxproj.user
+/*.vcxproj.user
 petstore-api
 *.o
+*.log
+tests/test_runner
