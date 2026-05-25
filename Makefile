@@ -1,11 +1,12 @@
 CC       = cc
-CFLAGS   = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O2 \
-           -I/usr/local/include/libmongoc-1.0 \
-           -I/usr/local/include/libbson-1.0
-CFLAGS_DEBUG = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O0 -DDEBUG \
-           -I/usr/local/include/libmongoc-1.0 \
-           -I/usr/local/include/libbson-1.0
-LDFLAGS  = -L/usr/local/lib -lmongoc-1.0 -lbson-1.0 -lmicrohttpd -lcjson
+
+# Dynamically resolve MongoDB C Driver flags & libraries using pkg-config
+MONGOC_CFLAGS = $(shell pkg-config --cflags libmongoc-1.0 libbson-1.0)
+MONGOC_LIBS   = $(shell pkg-config --libs libmongoc-1.0 libbson-1.0)
+
+CFLAGS   = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O2 $(MONGOC_CFLAGS)
+CFLAGS_DEBUG = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -g -O0 -DDEBUG $(MONGOC_CFLAGS)
+LDFLAGS  = $(MONGOC_LIBS) -lmicrohttpd -lcjson
 
 # Main application sources
 SRC      = main.c handlers.c database.c
@@ -36,8 +37,7 @@ TEST_CFLAGS = $(CFLAGS) \
 
 # Suppress Wpedantic / Wformat for vendored Unity code
 UNITY_CFLAGS = -Wall -g -O2 \
-               -I/usr/local/include/libmongoc-1.0 \
-               -I/usr/local/include/libbson-1.0 \
+               $(MONGOC_CFLAGS) \
                -I$(VENDOR_DIR) \
                -I$(STUBS_DIR) \
                -I.
