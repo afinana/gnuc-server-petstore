@@ -14,7 +14,7 @@ void db_init(const char* uri);
 /**
  * @brief Cleans up the MongoDB connection pool and resources.
  */
-void db_cleanup();
+void db_cleanup(void);
 
 /**
  * @brief Inserts a BSON document into the specified collection.
