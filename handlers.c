@@ -264,13 +264,16 @@ char* handle_get_pet_by_id(const char* id) {
 char* handle_get_all_pets(void) {
     LOG_INFO("find_all_pets");
 
+    // Fetch all documents from the "pets" collection in the database
     bson_t* result = db_find_all("pets");
     char* json = NULL;
     if (result) {
+        // Convert the BSON array result into relaxed JSON format string
         json = bson_to_json(result);
         bson_destroy(result);
     } else {
         LOG_ERROR("No pets found");
+        // Fall back to returning an empty JSON array if no pets are stored
         json = strdup("[]");
     }
 

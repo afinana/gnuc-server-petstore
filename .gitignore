@@ -3,3 +3,5 @@
 /gnuc-server-petstore.vcxproj.user
 petstore-api
 *.o
+server.log
+tests/test_runner

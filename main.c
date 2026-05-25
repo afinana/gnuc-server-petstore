@@ -30,11 +30,22 @@ static int send_response(struct MHD_Connection* connection, const char* message,
     if (!response) {
         return MHD_NO;
     }
+    
+    // Set the application/json content type header for RESTful responses
     MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, HTTP_CONTENT_TYPE_JSON);
+    
+    // CORS: Allow cross-origin requests from any Origin (needed for frontend UI like Angular)
     MHD_add_response_header(response, "Access-Control-Allow-Origin", "*");
+    
+    // CORS: Allow all standard CRUD and preflight HTTP methods
     MHD_add_response_header(response, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    
+    // CORS: Explicitly permit headers required by browser-based JSON requests
     MHD_add_response_header(response, "Access-Control-Allow-Headers", "Content-Type, Authorization, Origin, Accept");
+    
+    // CORS: Cache preflight request authorization for 24 hours to reduce latency
     MHD_add_response_header(response, "Access-Control-Max-Age", "86400");
+    
     int ret = MHD_queue_response(connection, status_code, response);
     MHD_destroy_response(response);
     return ret;
@@ -275,8 +286,9 @@ static enum MHD_Result request_handler(void* cls,
     }
 
     // GET /v2/user/findByName/{username} — Get user by username (prefix match, must precede /v2/user/{id})
+    // This allows dedicated lookup using the 'username' field (e.g. from /v2/user/findByName/alice)
     if (strcmp(method, "GET") == 0 && strncmp(url, "/v2/user/findByName/", 20) == 0 && strlen(url) > 20) {
-        const char* username = url + 20;
+        const char* username = url + 20; // Extract username parameter starting after '/v2/user/findByName/'
         char* result = handle_get_user_by_username(username);
         if (result == NULL) {
             return send_response(connection, "{\"error\":\"Failed to find user by username\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
@@ -287,8 +299,9 @@ static enum MHD_Result request_handler(void* cls,
     }
 
     // GET /v2/user/{id} — Get user by ID (prefix match, must be last)
+    // This allows dedicated lookup using either a numeric user ID or a standard ID segment
     if (strcmp(method, "GET") == 0 && strncmp(url, "/v2/user/", 9) == 0 && strlen(url) > 9) {
-        const char* id = url + 9;
+        const char* id = url + 9; // Extract ID parameter starting after '/v2/user/'
         char* result = handle_get_user_by_id(id);
         if (result == NULL) {
             return send_response(connection, "{\"error\":\"Failed to find user by ID\"}", MHD_HTTP_INTERNAL_SERVER_ERROR);
