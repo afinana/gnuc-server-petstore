@@ -11,7 +11,8 @@
 #include "log-utils.h"
 
 #define HTTP_CONTENT_TYPE_JSON "application/json"
-#define THREAD_POOL_SIZE 4
+#define THREAD_POOL_SIZE       4
+#define MAX_BODY_SIZE          (64u * 1024u)  /* 64 KB request body limit */
 
 volatile sig_atomic_t keep_running = 1;
 
@@ -99,9 +100,28 @@ static enum MHD_Result request_handler(void* cls,
 
     LOG_INFO("%s %s", method, url);
 
-    // Handle CORS preflight (OPTIONS)
+    /* ---------------------------------------------------------------
+     * Health check — always available before any auth or validation
+     * ------------------------------------------------------------- */
+    if (strcmp(method, "GET") == 0 && strcmp(url, "/health") == 0) {
+        return send_response(connection, "{\"status\":\"ok\"}", MHD_HTTP_OK);
+    }
+
+    /* Handle CORS preflight — 204 No Content (no body required) */
     if (strcmp(method, "OPTIONS") == 0) {
-        return send_response(connection, "", MHD_HTTP_OK);
+        return send_response(connection, "", MHD_HTTP_NO_CONTENT);
+    }
+
+    /* Content-Type validation for mutation requests */
+    if (strcmp(method, "POST") == 0 || strcmp(method, "PUT") == 0) {
+        const char* ct = MHD_lookup_connection_value(
+            connection, MHD_HEADER_KIND, MHD_HTTP_HEADER_CONTENT_TYPE);
+        if (!ct || strstr(ct, "application/json") == NULL) {
+            return send_response(
+                connection,
+                "{\"error\":\"Content-Type must be application/json\"}",
+                MHD_HTTP_UNSUPPORTED_MEDIA_TYPE);
+        }
     }
 
     // ========================
@@ -347,16 +367,18 @@ int main(void) {
 
     db_init(db_uri);
 
-    // Start the HTTP server with a thread pool for concurrent request handling
+    /* Start the HTTP server with a thread pool for concurrent request handling
+     * and a 64 KB per-connection memory limit to cap request body size.      */
     daemon = MHD_start_daemon(MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_ERROR_LOG,
         listen_port,
         NULL,
         NULL,
         &request_handler,
         NULL,
-        MHD_OPTION_THREAD_POOL_SIZE, (unsigned int)THREAD_POOL_SIZE,
-        MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int)120,
-        MHD_OPTION_NOTIFY_COMPLETED, &request_completed, NULL,
+        MHD_OPTION_THREAD_POOL_SIZE,       (unsigned int)THREAD_POOL_SIZE,
+        MHD_OPTION_CONNECTION_TIMEOUT,     (unsigned int)120,
+        MHD_OPTION_CONNECTION_MEMORY_LIMIT, MAX_BODY_SIZE,
+        MHD_OPTION_NOTIFY_COMPLETED,       &request_completed, NULL,
         MHD_OPTION_END);
 
     if (NULL == daemon) {

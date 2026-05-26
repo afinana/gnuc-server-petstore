@@ -32,9 +32,15 @@ extern const char* stub_db_find_one_json;
 
 /**
  * JSON string that db_find() will place inside the "results" array.
- * Set to NULL to simulate cursor error / empty results. Default: NULL
+ * Set to NULL to simulate an empty result set. Default: NULL
  */
 extern const char* stub_db_find_json;
+
+/**
+ * When true, db_find() and db_find_all() return NULL (simulating a
+ * connection failure). Default: false
+ */
+extern bool stub_db_find_fail;
 
 /* -------------------------------------------------------------------------
  * Call recording — inspect these after calling the handler under test

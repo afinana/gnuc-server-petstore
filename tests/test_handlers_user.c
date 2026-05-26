@@ -5,7 +5,7 @@
  * setUp() and tearDown() are NOT defined here; they are defined once in
  * test_main.c and shared across all suites in the single linked binary.
  *
- * Tests run without a real MongoDB connection — database_stubs.c provides
+ * Tests run without a real Redis connection — database_stubs.c provides
  * in-process fakes for all db_* calls.
  *
  * Coverage:
@@ -59,6 +59,20 @@ static void test_create_user_invalid_json(void) {
     TEST_ASSERT_EQUAL_INT(0, stub_db_insert_call_count);
 }
 
+static void test_create_user_null_payload(void) {
+    int result = handle_create_user(NULL);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_insert_call_count);
+}
+
+static void test_create_user_empty_payload(void) {
+    int result = handle_create_user("");
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_insert_call_count);
+}
+
 /* =========================================================================
  * handle_update_user
  * ====================================================================== */
@@ -91,6 +105,20 @@ static void test_update_user_db_failure(void) {
 static void test_update_user_invalid_json(void) {
     const char* payload = "{broken]";
     int result = handle_update_user(payload);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_update_call_count);
+}
+
+static void test_update_user_null_payload(void) {
+    int result = handle_update_user(NULL);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_update_call_count);
+}
+
+static void test_update_user_empty_payload(void) {
+    int result = handle_update_user("");
 
     TEST_ASSERT_NOT_EQUAL(0, result);
     TEST_ASSERT_EQUAL_INT(0, stub_db_update_call_count);
@@ -202,11 +230,20 @@ static void test_get_all_users_empty(void) {
 
     char* result = handle_get_all_users();
 
-    /* Even with no documents, should return valid JSON (not NULL) */
+    /* Stub returns a valid (empty results) bson_t, so result is not NULL */
     TEST_ASSERT_NOT_NULL(result);
     TEST_ASSERT_EQUAL_INT(1, stub_db_find_call_count);
 
     free(result);
+}
+
+static void test_get_all_users_db_failure(void) {
+    stub_db_find_fail = true;
+
+    char* result = handle_get_all_users();
+
+    TEST_ASSERT_NULL(result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_call_count);
 }
 
 /* =========================================================================
@@ -214,21 +251,41 @@ static void test_get_all_users_empty(void) {
  * ====================================================================== */
 
 static void test_login_valid_credentials(void) {
+    /* Set up: user exists in DB with matching password */
+    stub_db_find_one_json =
+        "{\"username\":\"admin\",\"password\":\"admin\"}";
     const char* payload = "{\"username\":\"admin\",\"password\":\"admin\"}";
     int result = handle_post_user_login(payload);
 
     TEST_ASSERT_EQUAL_INT(0, result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_one_call_count);
 }
 
 static void test_login_invalid_password(void) {
+    /* User found but password doesn't match */
+    stub_db_find_one_json =
+        "{\"username\":\"admin\",\"password\":\"admin\"}";
     const char* payload = "{\"username\":\"admin\",\"password\":\"wrongpassword\"}";
     int result = handle_post_user_login(payload);
 
     TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_one_call_count);
 }
 
 static void test_login_invalid_username(void) {
+    /* User not found in DB */
+    stub_db_find_one_json = NULL;
     const char* payload = "{\"username\":\"hacker\",\"password\":\"admin\"}";
+    int result = handle_post_user_login(payload);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_one_call_count);
+}
+
+static void test_login_user_missing_password_field(void) {
+    /* User found but no password field stored */
+    stub_db_find_one_json = "{\"username\":\"admin\"}";
+    const char* payload = "{\"username\":\"admin\",\"password\":\"admin\"}";
     int result = handle_post_user_login(payload);
 
     TEST_ASSERT_NOT_EQUAL(0, result);
@@ -303,12 +360,16 @@ void run_user_handler_tests(void) {
     RUN_TEST(test_create_user_valid_json);
     RUN_TEST(test_create_user_db_failure);
     RUN_TEST(test_create_user_invalid_json);
+    RUN_TEST(test_create_user_null_payload);
+    RUN_TEST(test_create_user_empty_payload);
 
     /* handle_update_user */
     RUN_TEST(test_update_user_valid_json);
     RUN_TEST(test_update_user_missing_id);
     RUN_TEST(test_update_user_db_failure);
     RUN_TEST(test_update_user_invalid_json);
+    RUN_TEST(test_update_user_null_payload);
+    RUN_TEST(test_update_user_empty_payload);
 
     /* handle_delete_user */
     RUN_TEST(test_delete_user_numeric_id);
@@ -326,11 +387,13 @@ void run_user_handler_tests(void) {
     /* handle_get_all_users */
     RUN_TEST(test_get_all_users_with_results);
     RUN_TEST(test_get_all_users_empty);
+    RUN_TEST(test_get_all_users_db_failure);
 
     /* handle_post_user_login */
     RUN_TEST(test_login_valid_credentials);
     RUN_TEST(test_login_invalid_password);
     RUN_TEST(test_login_invalid_username);
+    RUN_TEST(test_login_user_missing_password_field);
     RUN_TEST(test_login_missing_username_field);
     RUN_TEST(test_login_missing_password_field);
     RUN_TEST(test_login_malformed_json);

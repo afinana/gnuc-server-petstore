@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <hiredis/hiredis.h>
 #include "database.h"
+#include "database_utils.h"
 #include "log-utils.h"
 
 /**
@@ -102,93 +103,8 @@ static void pool_push(redisContext* ctx) {
 }
 
 /* -------------------------------------------------------------------------
- * URI parsing helpers
+ * URI parsing and ID extraction are in database_utils.c / database_utils.h
  * ---------------------------------------------------------------------- */
-
-/**
- * @brief Parses a Redis URI string of the form redis://[:password@]host:port/
- *
- * Extracts the host, port and optional password components. Falls back to
- * defaults of 127.0.0.1:6379 if parsing fails.
- *
- * @param uri    The Redis URI string.
- * @param host   Output: heap-allocated host string (caller must free).
- * @param port   Output: port number.
- * @param password Output: heap-allocated password string or NULL.
- */
-static void parse_redis_uri(const char* uri, char** host, int* port, char** password) {
-    *host = strdup("127.0.0.1");
-    *port = 6379;
-    *password = NULL;
-
-    /* Skip the "redis://" scheme prefix */
-    const char* p = uri;
-    if (strncmp(p, "redis://", 8) == 0) {
-        p += 8;
-    }
-
-    /* Check for :password@ pattern */
-    const char* at = strchr(p, '@');
-    if (at != NULL) {
-        /* Password sits between ":" and "@" */
-        if (p[0] == ':') {
-            size_t pw_len = (size_t)(at - p - 1);
-            *password = strndup(p + 1, pw_len);
-        }
-        p = at + 1;
-    }
-
-    /* Remaining: host:port[/...] */
-    const char* colon = strchr(p, ':');
-    const char* slash = strchr(p, '/');
-
-    if (colon != NULL) {
-        free(*host);
-        *host = strndup(p, (size_t)(colon - p));
-        *port = atoi(colon + 1);
-    } else if (slash != NULL) {
-        free(*host);
-        *host = strndup(p, (size_t)(slash - p));
-    } else if (*p != '\0') {
-        free(*host);
-        *host = strdup(p);
-    }
-}
-
-/* -------------------------------------------------------------------------
- * Helper: extract ID from a BSON document
- * ---------------------------------------------------------------------- */
-
-/**
- * @brief Extracts the "id" field from a BSON document as a string.
- *
- * Handles both integer and string id types. The caller must free the result.
- *
- * @param doc The BSON document.
- * @return char* The ID as a string, or NULL if not found.
- */
-static char* extract_id_string(const bson_t* doc) {
-    bson_iter_t iter;
-    if (!bson_iter_init_find(&iter, doc, "id")) {
-        return NULL;
-    }
-    if (BSON_ITER_HOLDS_INT64(&iter)) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%lld", (long long)bson_iter_int64(&iter));
-        return strdup(buf);
-    }
-    if (BSON_ITER_HOLDS_INT32(&iter)) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%d", bson_iter_int32(&iter));
-        return strdup(buf);
-    }
-    if (BSON_ITER_HOLDS_UTF8(&iter)) {
-        uint32_t len;
-        const char* val = bson_iter_utf8(&iter, &len);
-        return strndup(val, len);
-    }
-    return NULL;
-}
 
 /* -------------------------------------------------------------------------
  * Secondary index helpers

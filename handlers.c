@@ -42,6 +42,10 @@ static char* bson_to_json(const bson_t* doc) {
  */
 int handle_create_pet(const char* json_payload) {
     LOG_INFO("handle_create_pet");
+    if (!json_payload || json_payload[0] == '\0') {
+        LOG_ERROR("handle_create_pet: empty or NULL payload");
+        return EXIT_FAILURE;
+    }
     bson_t* doc = json_to_bson(json_payload);
     if (!doc) return EXIT_FAILURE;
 
@@ -59,6 +63,10 @@ int handle_create_pet(const char* json_payload) {
  */
 int handle_update_pet(const char* json_payload) {
     LOG_INFO("handle_update_pet");
+    if (!json_payload || json_payload[0] == '\0') {
+        LOG_ERROR("handle_update_pet: empty or NULL payload");
+        return EXIT_FAILURE;
+    }
     bson_t* doc = json_to_bson(json_payload);
     if (!doc) return EXIT_FAILURE;
 
@@ -264,19 +272,13 @@ char* handle_get_pet_by_id(const char* id) {
 char* handle_get_all_pets(void) {
     LOG_INFO("find_all_pets");
 
-    // Fetch all documents from the "pets" collection in the database
     bson_t* result = db_find_all("pets");
-    char* json = NULL;
-    if (result) {
-        // Convert the BSON array result into relaxed JSON format string
-        json = bson_to_json(result);
-        bson_destroy(result);
-    } else {
-        LOG_ERROR("No pets found");
-        // Fall back to returning an empty JSON array if no pets are stored
-        json = strdup("[]");
+    if (!result) {
+        LOG_ERROR("DB error fetching all pets");
+        return NULL;
     }
-
+    char* json = bson_to_json(result);
+    bson_destroy(result);
     return json;
 }
 
@@ -289,6 +291,10 @@ char* handle_get_all_pets(void) {
  */
 int handle_create_user(const char* json_payload) {
     LOG_INFO("handle_create_user");
+    if (!json_payload || json_payload[0] == '\0') {
+        LOG_ERROR("handle_create_user: empty or NULL payload");
+        return EXIT_FAILURE;
+    }
     bson_t* doc = json_to_bson(json_payload);
     if (!doc) return EXIT_FAILURE;
 
@@ -306,6 +312,10 @@ int handle_create_user(const char* json_payload) {
  */
 int handle_update_user(const char* json_payload) {
     LOG_INFO("handle_update_user");
+    if (!json_payload || json_payload[0] == '\0') {
+        LOG_ERROR("handle_update_user: empty or NULL payload");
+        return EXIT_FAILURE;
+    }
     bson_t* doc = json_to_bson(json_payload);
     if (!doc) return EXIT_FAILURE;
 
@@ -420,15 +430,31 @@ int handle_post_user_login(const char* json_payload) {
     const char* username = username_item->valuestring;
     const char* password = password_item->valuestring;
 
-    /* TODO: SECURITY — hardcoded credentials must be replaced with a DB lookup.
-     * Replace this block with a mongoc query against the "users" collection
-     * that matches the username and validates the (hashed) password.
-     * Never store or compare plaintext passwords in production code.
+    /* Look up the user by username in the database.
+     * TODO: SECURITY — passwords should be hashed (e.g., bcrypt/SHA-256).
+     * Currently stored and compared as plaintext for simplicity.
      */
+    bson_t* query = bson_new();
+    BSON_APPEND_UTF8(query, "username", username);
+    bson_t* user_doc = db_find_one("users", query);
+    bson_destroy(query);
+
     int result = EXIT_FAILURE;
-    if (username && password &&
-        strcmp(username, "admin") == 0 && strcmp(password, "admin") == 0) {
-        result = EXIT_SUCCESS;
+    if (user_doc) {
+        bson_iter_t user_iter;
+        if (bson_iter_init_find(&user_iter, user_doc, "password") &&
+            BSON_ITER_HOLDS_UTF8(&user_iter)) {
+            uint32_t pw_len;
+            const char* stored_pw = bson_iter_utf8(&user_iter, &pw_len);
+            if (strcmp(password, stored_pw) == 0) {
+                result = EXIT_SUCCESS;
+            }
+        } else {
+            LOG_ERROR("User document missing 'password' field");
+        }
+        bson_destroy(user_doc);
+    } else {
+        LOG_ERROR("User not found: %s", username);
     }
 
     cJSON_Delete(doc);
@@ -442,15 +468,12 @@ char* handle_get_all_users(void) {
     LOG_INFO("find_all_users");
 
     bson_t* result = db_find_all("users");
-    char* json = NULL;
-    if (result) {
-        json = bson_to_json(result);
-        bson_destroy(result);
-    } else {
-        LOG_ERROR("No users found");
-        json = strdup("[]");
+    if (!result) {
+        LOG_ERROR("DB error fetching all users");
+        return NULL;
     }
-
+    char* json = bson_to_json(result);
+    bson_destroy(result);
     return json;
 }
 

@@ -29,6 +29,7 @@ bool         stub_db_update_ret                = true;
 bool         stub_db_delete_ret                = true;
 const char*  stub_db_find_one_json             = NULL;
 const char*  stub_db_find_json                 = NULL;
+bool         stub_db_find_fail                 = false;
 
 int          stub_db_insert_call_count         = 0;
 char         stub_db_insert_last_collection[64] = {0};
@@ -51,6 +52,7 @@ void stub_db_reset(void) {
     stub_db_delete_ret          = true;
     stub_db_find_one_json       = NULL;
     stub_db_find_json           = NULL;
+    stub_db_find_fail           = false;
 
     stub_db_insert_call_count   = 0;
     stub_db_update_call_count   = 0;
@@ -120,6 +122,10 @@ bson_t* db_find(const char* collection_name, const bson_t* query) {
     (void)collection_name;
     (void)query;
     stub_db_find_call_count++;
+
+    if (stub_db_find_fail) {
+        return NULL;
+    }
 
     /* Build result as { "results": [ <stub_db_find_json item> ] } */
     bson_t* result = bson_new();

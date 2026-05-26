@@ -69,6 +69,20 @@ static void test_create_pet_minimal_json(void) {
     TEST_ASSERT_EQUAL_INT(1, stub_db_insert_call_count);
 }
 
+static void test_create_pet_null_payload(void) {
+    int result = handle_create_pet(NULL);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_insert_call_count);
+}
+
+static void test_create_pet_empty_payload(void) {
+    int result = handle_create_pet("");
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_insert_call_count);
+}
+
 /* =========================================================================
  * handle_update_pet
  * ====================================================================== */
@@ -102,6 +116,20 @@ static void test_update_pet_db_failure(void) {
 static void test_update_pet_invalid_json(void) {
     const char* payload = "{bad json}";
     int result = handle_update_pet(payload);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_update_call_count);
+}
+
+static void test_update_pet_null_payload(void) {
+    int result = handle_update_pet(NULL);
+
+    TEST_ASSERT_NOT_EQUAL(0, result);
+    TEST_ASSERT_EQUAL_INT(0, stub_db_update_call_count);
+}
+
+static void test_update_pet_empty_payload(void) {
+    int result = handle_update_pet("");
 
     TEST_ASSERT_NOT_EQUAL(0, result);
     TEST_ASSERT_EQUAL_INT(0, stub_db_update_call_count);
@@ -143,8 +171,9 @@ static void test_get_pet_by_id_found(void) {
     char* result = handle_get_pet_by_id("1");
 
     TEST_ASSERT_NOT_NULL(result);
-    /* Result should contain the pet data, not an error */
+    /* Result should contain the pet name, not an error */
     TEST_ASSERT_NULL(strstr(result, "\"error\""));
+    TEST_ASSERT_NOT_NULL(strstr(result, "Buddy"));
     TEST_ASSERT_EQUAL_INT(1, stub_db_find_one_call_count);
 
     free(result);
@@ -315,6 +344,16 @@ static void test_get_all_pets_empty(void) {
     free(result);
 }
 
+static void test_get_all_pets_db_failure(void) {
+    /* Simulate connection failure — handle_get_all_pets should return NULL */
+    stub_db_find_fail = true;
+
+    char* result = handle_get_all_pets();
+
+    TEST_ASSERT_NULL(result);
+    TEST_ASSERT_EQUAL_INT(1, stub_db_find_call_count);
+}
+
 /* =========================================================================
  * Test runner — called from test_main.c
  * ====================================================================== */
@@ -325,12 +364,16 @@ void run_pet_handler_tests(void) {
     RUN_TEST(test_create_pet_db_failure);
     RUN_TEST(test_create_pet_invalid_json);
     RUN_TEST(test_create_pet_minimal_json);
+    RUN_TEST(test_create_pet_null_payload);
+    RUN_TEST(test_create_pet_empty_payload);
 
     /* handle_update_pet */
     RUN_TEST(test_update_pet_valid_json);
     RUN_TEST(test_update_pet_missing_id_field);
     RUN_TEST(test_update_pet_db_failure);
     RUN_TEST(test_update_pet_invalid_json);
+    RUN_TEST(test_update_pet_null_payload);
+    RUN_TEST(test_update_pet_empty_payload);
 
     /* handle_delete_pet */
     RUN_TEST(test_delete_pet_numeric_id);
@@ -359,4 +402,5 @@ void run_pet_handler_tests(void) {
     /* handle_get_all_pets */
     RUN_TEST(test_get_all_pets_with_results);
     RUN_TEST(test_get_all_pets_empty);
+    RUN_TEST(test_get_all_pets_db_failure);
 }
